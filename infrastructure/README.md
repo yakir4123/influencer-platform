@@ -1,6 +1,6 @@
-# Telegram Bot Backend GCP Infrastructure
+# Influencer Platform Backend GCP Infrastructure
 
-This directory contains the Python Pulumi project to provision the Google Cloud Platform (GCP) infrastructure for a Telegram bot backend. 
+This directory contains the Python Pulumi project to provision the Google Cloud Platform (GCP) infrastructure for the Influencer Platform backend. 
 
 The architecture is designed to be modular, production-ready, highly secure, and easy to extend.
 
@@ -86,8 +86,8 @@ Ensure the user account has `Owner` or `Editor` + `Security Admin` role in the t
 3.  **Configure Resource Names**:
     Specify the bucket and registry repository names:
     ```bash
-    pulumi config set storage_bucket_name my-telegram-bot-images
-    pulumi config set artifact_registry_repo_name telegram-bot-repo
+    pulumi config set storage_bucket_name my-influencer-platform-images
+    pulumi config set artifact_registry_repo_name influencer-platform-repo
     ```
 
 4.  **Configure Secrets (Encrypted)**:
@@ -143,16 +143,16 @@ gcloud auth configure-docker us-central1-docker.pkg.dev
 Navigate to your application root directory containing your `Dockerfile`, and build the image.
 
 Use the output of `artifact_registry_repository` from Pulumi (or construct it as shown):
-Format: `<REGION>-docker.pkg.dev/<PROJECT_ID>/<REPO_NAME>/telegram-bot-backend:latest`
+Format: `<REGION>-docker.pkg.dev/<PROJECT_ID>/<REPO_NAME>/influencer-platform-backend:latest`
 
 ```bash
-docker build -t us-central1-docker.pkg.dev/your-project-id/telegram-bot-repo/telegram-bot-backend:latest .
+docker build -t us-central1-docker.pkg.dev/your-project-id/influencer-platform-repo/influencer-platform-backend:latest .
 ```
 
 ### 3. Push the Image to Artifact Registry
 
 ```bash
-docker push us-central1-docker.pkg.dev/your-project-id/telegram-bot-repo/telegram-bot-backend:latest
+docker push us-central1-docker.pkg.dev/your-project-id/influencer-platform-repo/influencer-platform-backend:latest
 ```
 
 ### 4. Update Pulumi to Deploy your Container
@@ -160,7 +160,7 @@ docker push us-central1-docker.pkg.dev/your-project-id/telegram-bot-repo/telegra
 Configure Pulumi to point to your new image and update the stack:
 
 ```bash
-pulumi config set cloud_run_image us-central1-docker.pkg.dev/your-project-id/telegram-bot-repo/telegram-bot-backend:latest
+pulumi config set cloud_run_image us-central1-docker.pkg.dev/your-project-id/influencer-platform-repo/influencer-platform-backend:latest
 pulumi up
 ```
 

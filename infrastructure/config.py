@@ -41,7 +41,7 @@ ARTIFACT_REGISTRY_REPO_NAME: Final[str] = config.require(
 # -----------------------------------------------------------------------------
 
 CLOUD_RUN_SERVICE_NAME: Final[str] = (
-    config.get("cloud_run_service_name") or "telegram-bot-backend"
+    config.get("cloud_run_service_name") or "influencer-platform-backend"
 )
 
 CLOUD_RUN_MAX_INSTANCES: Final[int] = (

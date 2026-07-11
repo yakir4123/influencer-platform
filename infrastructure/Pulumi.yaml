@@ -1,4 +1,4 @@
-name: telegram-bot-backend
+name: influencer-platform
 runtime:
   name: python
   options:

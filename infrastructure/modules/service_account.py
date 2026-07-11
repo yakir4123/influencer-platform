@@ -10,7 +10,7 @@ def create_service_account(
     """Creates a dedicated GCP Service Account for the Cloud Run service.
 
     Args:
-        account_id: Service Account ID (e.g. 'telegram-bot-runner').
+        account_id: Service Account ID (e.g. 'influencer-platform-runner').
 
     Returns:
         The created Service Account resource.
@@ -18,6 +18,6 @@ def create_service_account(
     return gcp.serviceaccount.Account(
         account_id,
         account_id=account_id,
-        display_name="Cloud Run Telegram Bot Backend SA",
-        description="Dedicated service account running the Telegram Bot backend on Cloud Run",
+        display_name="Cloud Run Influencer Platform Backend SA",
+        description="Dedicated service account running the Influencer Platform backend on Cloud Run",
     )

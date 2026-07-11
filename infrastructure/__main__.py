@@ -31,7 +31,7 @@ database = firestore.create_firestore_database(
 
 # 4. Provision dedicated Service Account for Cloud Run
 sa = service_account.create_service_account(
-    account_id="telegram-bot-runner",
+    account_id="influencer-platform-runner",
 )
 
 # 5. Provision Secret Manager secrets using configurations
