@@ -1,0 +1,7 @@
+name: telegram-bot-backend
+runtime:
+  name: python
+  options:
+    toolchain: pip
+    virtualenv: .venv
+description: Google Cloud Infrastructure for Telegram Bot Backend

@@ -1,0 +1,13 @@
+# Dev environment configuration for Telegram Bot backend infrastructure
+config:
+  # Google Cloud Settings
+  gcp:project: project-35d3eed2-c73d-4ab5-998
+  gcp:region: europe-west1
+  # Resource Names
+  telegram-bot-backend:storage_bucket_name: your-telegram-bot-images-bucket
+  telegram-bot-backend:artifact_registry_repo_name: telegram-bot-repo
+  # Cloud Run Performance Tuning (Optional, defaults will be used if omitted)
+  telegram-bot-backend:cloud_run_service_name: telegram-bot-backend
+  telegram-bot-backend:cloud_run_max_instances: "5"
+  telegram-bot-backend:cloud_run_memory: 512Mi
+  telegram-bot-backend:cloud_run_cpu: "1"
