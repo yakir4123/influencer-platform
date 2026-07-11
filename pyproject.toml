@@ -1,0 +1,23 @@
+[project]
+name = "influencer-platform"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.139.0",
+    "gallery-dl>=1.32.5",
+    "pydantic-settings>=2.14.2",
+    "uvicorn>=0.51.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "."
+]
