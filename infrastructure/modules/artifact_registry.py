@@ -22,7 +22,7 @@ def create_repository(
         repository_id=repository_id,
         location=location,
         format="DOCKER",
-        description="Docker repository for Telegram bot backend images",
+        description="Docker repository for Influencer Platform backend images",
         # Enable cleanup policies or mutability if needed, but defaults are standard
         # image_immutable_updates=False,
     )

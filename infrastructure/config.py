@@ -1,4 +1,4 @@
-"""Configuration for the Telegram bot backend infrastructure.
+"""Configuration for the Influencer Platform backend infrastructure.
 
 Loads and type-hints values from the selected Pulumi stack configuration.
 """
@@ -52,7 +52,7 @@ CLOUD_RUN_CPU: Final[str] = config.get("cloud_run_cpu") or "1"
 CLOUD_RUN_MEMORY: Final[str] = config.get("cloud_run_memory") or "512Mi"
 
 # Temporary public image that allows Cloud Run to be provisioned before the
-# Telegram backend application image is available.
+# Influencer Platform backend application image is available.
 CLOUD_RUN_IMAGE: Final[str] = (
     config.get("cloud_run_image")
     or "us-docker.pkg.dev/cloudrun/container/hello"

@@ -25,7 +25,7 @@ def configure_iam(
     Args:
         project_id: Google Cloud project ID.
         service_account: Service account used by the Cloud Run service.
-        storage_bucket: Cloud Storage bucket for Telegram images.
+        storage_bucket: Cloud Storage bucket for Influencer Platform images.
         secrets: Mapping of secret IDs to their Secret Manager resources.
     """
     sa_member = service_account.email.apply(

@@ -4,4 +4,4 @@ runtime:
   options:
     toolchain: pip
     virtualenv: .venv
-description: Google Cloud Infrastructure for Telegram Bot Backend
+description: Google Cloud Infrastructure for Influencer Platform Backend

@@ -1,4 +1,4 @@
-"""Main orchestration script for provisioning Telegram Bot Backend infrastructure on GCP."""
+"""Main orchestration script for provisioning Influencer Platform Backend infrastructure on GCP."""
 
 import config
 from modules import (
@@ -18,7 +18,7 @@ registry = artifact_registry.create_repository(
     location=config.GCP_REGION,
 )
 
-# 2. Provision GCS bucket for storing Telegram images
+# 2. Provision GCS bucket for storing Influencer Platform images
 bucket = storage.create_bucket(
     bucket_name=config.STORAGE_BUCKET_NAME,
     location=config.GCP_REGION,
