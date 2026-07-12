@@ -73,3 +73,7 @@ TELEGRAM_BOT_TOKEN: Final[pulumi.Output[str] | None] = config.get_secret(
 OPENAI_API_KEY: Final[pulumi.Output[str] | None] = config.get_secret(
     "openai_api_key"
 )
+
+INSTAGRAM_COOKIES: Final[pulumi.Output[str] | None] = config.get_secret(
+    "instagram_cookies"
+)
