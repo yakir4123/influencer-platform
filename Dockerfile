@@ -9,13 +9,13 @@ WORKDIR /app
 
 # Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
+ENV UV_PYTHON_PREFERENCE=only-system
+ENV UV_PYTHON=/usr/local/bin/python
 
 # Copy pyproject.toml and uv.lock (if it exists)
 COPY pyproject.toml uv.lock* ./
 
-# Install dependencies using uv sync (excluding development packages)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
+RUN uv sync --frozen --no-install-project --no-dev
 
 # Final stage
 FROM python:3.12-slim-bookworm
@@ -36,5 +36,5 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Expose port and run the server
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 8080
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]

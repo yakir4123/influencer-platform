@@ -1,0 +1,23 @@
+.gcloudignore
+.git
+.gitignore
+
+# Python virtual environments and caches
+.venv/
+venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local configuration
+.env
+.env.*
+
+# Infrastructure
+infrastructure/
+
+# Downloads/Temp
+downloads/
+temp/
