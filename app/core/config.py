@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     INSTAGRAM_SAVE_TO: str = "temp"
     INSTAGRAM_COOKIES: Optional[str] = None
 
+    # Google Cloud Storage settings
+    GCS_BUCKET_NAME: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

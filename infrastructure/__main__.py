@@ -61,6 +61,9 @@ run_service = cloud_run.create_cloud_run_service(
     cpu=config.CLOUD_RUN_CPU,
     memory=config.CLOUD_RUN_MEMORY,
     secrets=secret_resources,
+    env={
+        "GCS_BUCKET_NAME": bucket.name,
+    },
 )
 
 # 8. Export stacked outputs

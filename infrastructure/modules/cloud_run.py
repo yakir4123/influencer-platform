@@ -19,6 +19,7 @@ def create_cloud_run_service(
     cpu: str,
     memory: str,
     secrets: Mapping[str, SecretResources],
+    env: Mapping[str, pulumi.Input[str]] | None = None,
 ) -> gcp.cloudrunv2.Service:
     """Create a public Google Cloud Run service.
 
@@ -35,11 +36,21 @@ def create_cloud_run_service(
         memory: Container memory limit, such as ``"512Mi"``.
         secrets: Mapping of environment-variable names to Secret Manager
             resources and optional secret versions.
+        env: Optional mapping of environment-variable names to their values.
 
     Returns:
         The created Cloud Run service.
     """
     env_vars: list[gcp.cloudrunv2.ServiceTemplateContainerEnvArgs] = []
+
+    if env:
+        for env_name, env_val in env.items():
+            env_vars.append(
+                gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
+                    name=env_name,
+                    value=env_val,
+                )
+            )
 
     for env_name, secret_resources in secrets.items():
         # Do not bind a secret that has no payload/version yet.

@@ -1,0 +1,96 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    # Required permissions for Workload Identity Federation
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      GCP_PROJECT: project-35d3eed2-c73d-4ab5-998
+      GCP_REGION: europe-west1
+      REPO_NAME: influencer-platform-repo
+      IMAGE_NAME: influencer-platform-backend
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. Authenticate with Google Cloud
+      # Supports both Workload Identity Federation (preferred) and Service Account Key JSON secrets
+      - name: Google Auth
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          # Workload Identity Federation configuration (Preferred)
+          # workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          # service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          
+          # Service Account Key configuration (Fallback)
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # 2. Set up Cloud SDK
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # 3. Configure Docker for Artifact Registry
+      - name: Configure Docker
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      # 4. Build and Push Application Docker Image
+      - name: Build and Push Docker Image
+        run: |
+          IMAGE_PATH="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}"
+          COMMIT_SHA="${{ github.sha }}"
+          
+          docker build \
+            -t "${IMAGE_PATH}:latest" \
+            -t "${IMAGE_PATH}:${COMMIT_SHA}" \
+            .
+            
+          docker push "${IMAGE_PATH}:latest"
+          docker push "${IMAGE_PATH}:${COMMIT_SHA}"
+
+      # 5. Set up Python & UV
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: 'latest'
+
+      # 6. Install Python dependencies for Pulumi
+      - name: Install dependencies
+        run: |
+          uv pip install --system -r infrastructure/requirements.txt
+
+      # 7. Install Pulumi CLI
+      - name: Set up Pulumi
+        uses: pulumi/actions@v4
+        with:
+          pulumi-version: 'latest'
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+      # 8. Deploy stack via Pulumi
+      - name: Pulumi Up
+        run: |
+          cd infrastructure
+          IMAGE_PATH="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          pulumi stack select dev
+          pulumi config set cloud_run_image "$IMAGE_PATH"
+          pulumi up --yes
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}

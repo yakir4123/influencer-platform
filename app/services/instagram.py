@@ -16,6 +16,8 @@ from urllib.parse import parse_qs, unquote, urlparse, urlunparse
 import requests
 
 from app.core.config import settings
+from app.services.gcs import list_gcs_files, upload_file_to_gcs, delete_gcs_files
+from app.services.image import compress_image_lossless
 
 # Setup module logger
 logger = logging.getLogger("app.services.instagram")
@@ -517,16 +519,110 @@ def resolve_download(
     log(f"Selected image index: {selected_image_index}")
     log(f"Save target: {save_to}")
 
+    folder_name = safe_name_from_url(download_source_url)
+    min_needed = max(1, selected_image_index + 1)
+
+    # 1. If Google Cloud Storage is enabled
+    if settings.GCS_BUCKET_NAME:
+        gcs_prefix = f"social_downloads/{folder_name}"
+        
+        # Check cache if not forcing refresh
+        if not force_refresh:
+            cached_files = list_gcs_files(prefix=gcs_prefix)
+            if cached_files and len(cached_files) >= min_needed:
+                log(f"Using GCS cached files. count={len(cached_files)}")
+                summary = {
+                    "mode": "gcs-cache",
+                    "order_source": "gcs prefix search",
+                    "downloaded_count": len(cached_files),
+                    "required_min_count": min_needed,
+                    "out_dir": f"gs://{settings.GCS_BUCKET_NAME}/{gcs_prefix}",
+                    "files": [
+                        {
+                            "index": idx,
+                            "name": Path(f).name,
+                            "path": f,
+                        }
+                        for idx, f in enumerate(cached_files)
+                    ],
+                }
+                return (
+                    original_source_url,
+                    download_source_url,
+                    cached_files,
+                    json.dumps(summary, indent=2, ensure_ascii=False),
+                    f"gs://{settings.GCS_BUCKET_NAME}/{gcs_prefix}",
+                )
+
+        # Force refresh or GCS cache miss -> Delete existing if force_refresh is True
+        if force_refresh:
+            delete_gcs_files(prefix=gcs_prefix)
+
+        # Download to a temporary folder in the pod
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            if is_direct_image_url(download_source_url):
+                media_files, summary_str = download_direct_image(
+                    url=download_source_url,
+                    out_dir=temp_path,
+                    timeout=timeout,
+                )
+            else:
+                media_files, summary_str = download_with_gallery_dl(
+                    url=download_source_url,
+                    out_dir=temp_path,
+                    cookies_file=cookies_file,
+                    max_items=max_items,
+                    timeout=timeout,
+                    selected_image_index=selected_image_index,
+                )
+
+            # Compress downloaded images losslessly
+            compressed_media_files = []
+            for file_path_str in media_files:
+                local_file = Path(file_path_str)
+                compressed_file = compress_image_lossless(local_file)
+                compressed_media_files.append(compressed_file)
+
+            # Upload compressed files to GCS
+            gcs_media_files = []
+            for local_file in compressed_media_files:
+                gcs_path = f"{gcs_prefix}/{local_file.name}"
+                gcs_uri = upload_file_to_gcs(local_file, gcs_path)
+                if gcs_uri:
+                    gcs_media_files.append(gcs_uri)
+                else:
+                    raise RuntimeError(f"Failed to upload media file {local_file.name} to GCS.")
+
+            original_summary = json.loads(summary_str)
+            summary = {
+                **original_summary,
+                "mode": f"gcs-{original_summary.get('mode', 'download')}",
+                "out_dir": f"gs://{settings.GCS_BUCKET_NAME}/{gcs_prefix}",
+                "files": [
+                    {
+                        "index": idx,
+                        "name": Path(f).name,
+                        "path": f,
+                    }
+                    for idx, f in enumerate(gcs_media_files)
+                ],
+            }
+            return (
+                original_source_url,
+                download_source_url,
+                gcs_media_files,
+                json.dumps(summary, indent=2, ensure_ascii=False),
+                f"gs://{settings.GCS_BUCKET_NAME}/{gcs_prefix}",
+            )
+
+    # 2. Local fallback storage
     base_dir = get_base_directory(save_to)
     Path(base_dir).mkdir(parents=True, exist_ok=True)
-
-    folder_name = safe_name_from_url(download_source_url)
     download_dir = Path(base_dir) / "social_downloads" / folder_name
     download_dir.mkdir(parents=True, exist_ok=True)
 
     log(f"Download folder: {download_dir}")
-
-    min_needed = max(1, selected_image_index + 1)
 
     if force_refresh:
         clear_directory(download_dir)
@@ -561,13 +657,13 @@ def resolve_download(
         )
 
     if is_direct_image_url(download_source_url):
-        media_files, summary = download_direct_image(
+        media_files, summary_str = download_direct_image(
             url=download_source_url,
             out_dir=download_dir,
             timeout=timeout,
         )
     else:
-        media_files, summary = download_with_gallery_dl(
+        media_files, summary_str = download_with_gallery_dl(
             url=download_source_url,
             out_dir=download_dir,
             cookies_file=cookies_file,
@@ -576,7 +672,22 @@ def resolve_download(
             selected_image_index=selected_image_index,
         )
 
-    return original_source_url, download_source_url, media_files, summary, str(download_dir.resolve())
+    # Compress downloaded images losslessly for local fallback too
+    compressed_media_files = []
+    for file_path_str in media_files:
+        local_file = Path(file_path_str)
+        compressed_file = compress_image_lossless(local_file)
+        compressed_media_files.append(str(compressed_file.resolve()))
+    media_files = compressed_media_files
+
+    original_summary = json.loads(summary_str)
+    summary = {
+        **original_summary,
+        "files": describe_files_short(media_files),
+    }
+    summary_str = json.dumps(summary, indent=2, ensure_ascii=False)
+
+    return original_source_url, download_source_url, media_files, summary_str, str(download_dir.resolve())
 
 
 def download_instagram_post(
@@ -627,7 +738,7 @@ def download_instagram_post(
             "selected_image_index": selected_image_index,
             "url_img_index_override": url_img_index,
             "download_dir": download_dir,
-            "media_files": [os.path.abspath(f) for f in media_files],
+            "media_files": [f if f.startswith("gs://") else os.path.abspath(f) for f in media_files],
             "summary": parsed_summary,
         }
     finally:
