@@ -1,14 +1,26 @@
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import List, Optional, Literal
+from pydantic import BaseModel, Field
 
 
 class ImageGenerationRequest(BaseModel):
-    prompt: str
-    number_of_images: int = 1
-    aspect_ratio: str = "1:1"
+    preset: Literal["Subtle", "Normal", "Heavy"] = Field(..., description="Controls how much the model is allowed to deviate from the original")
+    prompt: str = Field(..., description="Describe the subject, style, or any specific detail")
+    count: int = Field(..., ge=1, le=20, description="Number of re-posed images to generate per scene image")
+    retry_count: int = Field(..., ge=1, le=10, description="Number of retries per image on failure")
+    image_size: Literal["1K", "2K", "4K", "8K"] = Field(..., description="Output resolution")
+    
+    # Optional parameters
+    image_2: Optional[str] = Field(None, description="Scene/environment reference image (URL or base64)")
+    is_selfie: bool = Field(False, description="Adds selfie framing instructions to the prompt")
+    is_mirror_selfie: bool = Field(False, description="Adds mirror selfie instructions to the prompt")
+    vertex_json_folder: str = Field("", description="Path to service account JSON folder")
+    disable_safety_threshold: bool = Field(False, description="Disable the safety filter")
+    aspect_ratio: Literal["auto", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"] = Field("auto", description="Aspect ratio")
+    temperature: float = Field(1.0, ge=0.0, le=2.0, description="Model creativity")
 
 
 class ImageGenerationResponse(BaseModel):
     status: str = "success"
     generated_images: List[str]
     message: str
+

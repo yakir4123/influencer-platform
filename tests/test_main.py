@@ -16,14 +16,26 @@ def test_health_check(client):
 
 def test_generate_image(client):
     payload = {
+        "preset": "Normal",
         "prompt": "a futuristic city with flying cars",
-        "number_of_images": 2,
-        "aspect_ratio": "16:9"
+        "count": 2,
+        "retry_count": 3,
+        "image_size": "2K",
+        "is_selfie": True
     }
     response = client.post("/api/v1/generate-image", json=payload)
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
-    assert data["generated_images"] == ["mock_image_url_1.png"]
-    assert data["message"] == "works!"
+    assert len(data["generated_images"]) == 2
+    for img_path in data["generated_images"]:
+        assert img_path.startswith("temp/generated_")
+        assert img_path.endswith(".png")
+    assert "Successfully generated images via" in data["message"]
+    assert "a futuristic city with flying cars" in data["message"]
+    assert "Picture 1 defines the identity" in data["message"]
+    assert "It's a selfie" in data["message"]
+
+
+
 

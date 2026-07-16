@@ -11,6 +11,9 @@ dependencies = [
     "uvicorn>=0.51.0",
     "google-cloud-storage>=2.14.0",
     "Pillow>=10.2.0",
+    "google-cloud-aiplatform>=1.161.0",
+    "torch>=2.13.0",
+    "numpy>=2.5.1",
 ]
 
 [dependency-groups]
