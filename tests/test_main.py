@@ -12,3 +12,18 @@ def test_health_check(client):
     assert data["status"] == "ok"
     assert "environment" in data
     assert "version" in data
+
+
+def test_generate_image(client):
+    payload = {
+        "prompt": "a futuristic city with flying cars",
+        "number_of_images": 2,
+        "aspect_ratio": "16:9"
+    }
+    response = client.post("/api/v1/generate-image", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["generated_images"] == ["mock_image_url_1.png"]
+    assert data["message"] == "works!"
+
