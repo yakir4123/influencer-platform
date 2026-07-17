@@ -132,7 +132,7 @@ class NanoBananaAIO:
         )
 
         # Prepare HTTP options
-        http_opts = genai.types.HttpOptions(timeout=300000, max_retries=0)  # type: ignore
+        http_opts = genai.types.HttpOptions(timeout=300000)  # type: ignore
 
         client = genai.Client(
             vertexai=True,
@@ -182,9 +182,13 @@ class NanoBananaAIO:
         # Prepare contents
         contents: List[Union[str, Image.Image]] = [prompt]
         if image_1 is not None:
-            contents.append(image_1)
+            # Convert to RGB to ensure compatibility (Gemini API does not support RGBA/alpha channel)
+            img1_rgb = image_1.convert("RGB") if image_1.mode != "RGB" else image_1
+            contents.append(img1_rgb)
         if image_2 is not None:
-            contents.append(image_2)
+            # Convert to RGB to ensure compatibility (Gemini API does not support RGBA/alpha channel)
+            img2_rgb = image_2.convert("RGB") if image_2.mode != "RGB" else image_2
+            contents.append(img2_rgb)
 
         # Run async calls concurrently if batch_size > 1
         import asyncio
