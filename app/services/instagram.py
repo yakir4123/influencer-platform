@@ -524,7 +524,7 @@ def resolve_download(
 
     # 1. If Google Cloud Storage is enabled
     if settings.GCS_BUCKET_NAME:
-        gcs_prefix = f"social_downloads/{folder_name}"
+        gcs_prefix = f"instagram_posts/{folder_name}"
         
         # Check cache if not forcing refresh
         if not force_refresh:

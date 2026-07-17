@@ -81,3 +81,26 @@ def delete_gcs_files(prefix: str) -> None:
             logger.info(f"Deleted {len(blobs)} existing blobs in GCS prefix: {prefix}")
     except Exception as e:
         logger.error(f"Failed to delete GCS files for prefix {prefix}: {e}")
+
+
+def download_gcs_file_bytes(gcs_uri: str) -> Optional[bytes]:
+    """
+    Downloads and returns the bytes of a GCS object specified by a gs:// URI.
+    """
+    if not gcs_uri.startswith("gs://"):
+        return None
+    client = get_gcs_client()
+    if not client:
+        return None
+    try:
+        parts = gcs_uri[5:].split("/", 1)
+        if len(parts) != 2:
+            return None
+        bucket_name, blob_name = parts
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        return blob.download_as_bytes()
+    except Exception as e:
+        logger.error(f"Failed to download GCS file {gcs_uri}: {e}")
+        return None
+

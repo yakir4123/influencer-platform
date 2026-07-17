@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     # Google Cloud Storage settings
     GCS_BUCKET_NAME: Optional[str] = None
 
+    # Telegram Bot Settings
+    TELEGRAM_BOT_TOKEN: Optional[str] = None
+    TELEGRAM_BOT_WEBHOOK_URL: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

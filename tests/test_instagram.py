@@ -100,8 +100,8 @@ def test_instagram_download_gcs_cache_hit(mock_settings, mock_list_gcs):
     
     # Mock cached GCS files
     mock_list_gcs.return_value = [
-        "gs://test-bucket/social_downloads/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3/img1.webp",
-        "gs://test-bucket/social_downloads/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3/img2.webp"
+        "gs://test-bucket/instagram_posts/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3/img1.webp",
+        "gs://test-bucket/instagram_posts/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3/img2.webp"
     ]
     
     result = download_instagram_post(
@@ -110,13 +110,13 @@ def test_instagram_download_gcs_cache_hit(mock_settings, mock_list_gcs):
         force_refresh=False
     )
     
-    assert result["download_dir"] == "gs://test-bucket/social_downloads/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3"
+    assert result["download_dir"] == "gs://test-bucket/instagram_posts/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3"
     assert len(result["media_files"]) == 2
-    assert result["media_files"][0] == "gs://test-bucket/social_downloads/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3/img1.webp"
+    assert result["media_files"][0] == "gs://test-bucket/instagram_posts/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3/img1.webp"
     assert result["summary"]["mode"] == "gcs-cache"
     mock_list_gcs.assert_called_once()
-
-
+    
+    
 @patch("app.services.instagram.upload_file_to_gcs")
 @patch("app.services.instagram.list_gcs_files")
 @patch("app.services.instagram.download_with_gallery_dl")
@@ -155,8 +155,8 @@ def test_instagram_download_gcs_cache_miss(mock_settings, mock_gallery_dl, mock_
         force_refresh=False
     )
     
-    assert result["download_dir"] == "gs://test-bucket/social_downloads/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3"
+    assert result["download_dir"] == "gs://test-bucket/instagram_posts/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3"
     assert len(result["media_files"]) == 1
-    assert result["media_files"][0] == "gs://test-bucket/social_downloads/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3/img1.webp"
+    assert result["media_files"][0] == "gs://test-bucket/instagram_posts/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3/img1.webp"
     assert result["summary"]["mode"] == "gcs-gallery-dl"
     mock_upload.assert_called_once()

@@ -17,6 +17,7 @@ class ImageGenerationRequest(BaseModel):
     disable_safety_threshold: bool = Field(False, description="Disable the safety filter")
     aspect_ratio: Literal["auto", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"] = Field("auto", description="Aspect ratio")
     temperature: float = Field(1.0, ge=0.0, le=2.0, description="Model creativity")
+    identity_name: Optional[str] = Field("gal", description="Identity reference name (e.g. gal)")
 
 
 class ImageGenerationResponse(BaseModel):

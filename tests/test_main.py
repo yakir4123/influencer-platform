@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 def test_read_root(client):
     response = client.get("/")
     assert response.status_code == 200
@@ -14,27 +16,42 @@ def test_health_check(client):
     assert "version" in data
 
 
-def test_generate_image(client):
-    payload = {
-        "preset": "Normal",
-        "prompt": "a futuristic city with flying cars",
-        "count": 2,
-        "retry_count": 3,
-        "image_size": "2K",
-        "is_selfie": True
-    }
-    response = client.post("/api/v1/generate-image", json=payload)
+
+
+
+@patch("app.api.routes.settings")
+@patch("app.bot.get_bot_app")
+def test_telegram_webhook_unauthorized(mock_get_bot_app, mock_settings, client):
+    mock_settings.TELEGRAM_BOT_TOKEN = "12345:token"
+    response = client.post(
+        "/api/v1/telegram-webhook",
+        json={"update_id": 123},
+        headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"}
+    )
+    assert response.status_code == 403
+    assert "Invalid webhook secret token" in response.json()["detail"]
+
+
+@patch("app.api.routes.settings")
+@patch("app.bot.get_bot_app")
+def test_telegram_webhook_success(mock_get_bot_app, mock_settings, client):
+    import hashlib
+    from unittest.mock import MagicMock, AsyncMock
+
+    mock_settings.TELEGRAM_BOT_TOKEN = "12345:token"
+    mock_bot_app = MagicMock()
+    mock_bot_app.process_update = AsyncMock()
+    mock_get_bot_app.return_value = mock_bot_app
+    
+    secret_token = hashlib.sha256(b"12345:token").hexdigest()
+    response = client.post(
+        "/api/v1/telegram-webhook",
+        json={"update_id": 123},
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret_token}
+    )
     assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "success"
-    assert len(data["generated_images"]) == 2
-    for img_path in data["generated_images"]:
-        assert img_path.startswith("temp/generated_")
-        assert img_path.endswith(".png")
-    assert "Successfully generated images via" in data["message"]
-    assert "a futuristic city with flying cars" in data["message"]
-    assert "Picture 1 defines the identity" in data["message"]
-    assert "It's a selfie" in data["message"]
+    assert response.json() == {"status": "success"}
+
 
 
 

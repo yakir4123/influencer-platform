@@ -265,7 +265,11 @@ def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
     import numpy as np
     from app.services.nano_banana_aio import NanoBananaAIO, tensor_to_pil
 
-    image_1_path = Path("app/assets/gal.png")
+    name_to_image_map = {
+        "gal": Path("app/assets/gal.png"),
+    }
+    identity = (payload.identity_name or "gal").lower().strip()
+    image_1_path = name_to_image_map.get(identity, Path("app/assets/gal.png"))
     count = max(1, min(payload.count, 10))
 
     # Compile the final prompt exactly like the ComfyUI node
@@ -403,6 +407,9 @@ def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
             pil_img.save(out_path, format="PNG")
             generated_images.append(str(out_path))
 
+        if len(generated_images) < count:
+            raise RuntimeError(f"Requested {count} images, but only generated {len(generated_images)} via NanoBananaAIO.")
+
         source = "NanoBananaAIO"
         logger.info(f"Successfully generated {len(generated_images)} images via NanoBananaAIO.")
     except Exception as e:
@@ -414,6 +421,38 @@ def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
             out_path = generate_fallback_image(payload.prompt, payload.preset, i, payload.image_2)
             generated_images.append(str(out_path))
         source = "PIL Fallback Generator"
+
+    # ── Upload to GCS if configured ──
+    from app.core.config import settings
+    if settings.GCS_BUCKET_NAME:
+        import hashlib
+        from datetime import datetime, timezone
+        from app.services.gcs import upload_file_to_gcs
+        
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        prompt_hash = hashlib.sha256(payload.prompt.encode("utf-8")).hexdigest()[:10]
+        gcs_prefix = f"generated_images/{date_str}/{prompt_hash}"
+        
+        gcs_media_files = []
+        for file_path_str in generated_images:
+            local_file = Path(file_path_str)
+            # Compress image losslessly
+            compressed_file = compress_image_lossless(local_file)
+            
+            gcs_path = f"{gcs_prefix}/{compressed_file.name}"
+            gcs_uri = upload_file_to_gcs(compressed_file, gcs_path)
+            if gcs_uri:
+                gcs_media_files.append(gcs_uri)
+                # Cleanup local file
+                try:
+                    if compressed_file.exists():
+                        compressed_file.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to delete local generated file {compressed_file}: {e}")
+            else:
+                raise RuntimeError(f"Failed to upload generated image {compressed_file.name} to GCS.")
+        
+        generated_images = gcs_media_files
 
     return {
         "status": "success",

@@ -1,8 +1,22 @@
+import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
 from app.core.config import settings
+from app.bot import run_bot_async, stop_bot_async
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    bot_task = None
+    if settings.TELEGRAM_BOT_TOKEN:
+        bot_task = asyncio.create_task(run_bot_async())
+    yield
+    if bot_task:
+        await stop_bot_async()
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -10,6 +24,7 @@ app = FastAPI(
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # Set all CORS enabled origins
