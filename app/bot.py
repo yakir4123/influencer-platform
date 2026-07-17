@@ -111,8 +111,7 @@ async def new_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def download_post_bg(chat_id: int, url: str, context: ContextTypes.DEFAULT_TYPE):
     """Background task to download Instagram post."""
     try:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, lambda: download_instagram_post(url))
+        result = await download_instagram_post(url)
         
         all_files = result.get("media_files", [])
         image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
