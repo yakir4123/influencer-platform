@@ -1,6 +1,5 @@
 """Module to provision dedicated IAM Service Accounts."""
 
-import pulumi
 import pulumi_gcp as gcp
 
 

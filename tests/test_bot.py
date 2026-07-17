@@ -7,7 +7,6 @@ from app.bot import (
     start_command,
     help_command,
     new_post_command,
-    handle_callback_query,
     USER_STATES,
 )
 
@@ -18,7 +17,7 @@ async def test_start_command():
     update = MagicMock(spec=Update)
     update.message = AsyncMock()
     context = MagicMock(spec=ContextTypes.DEFAULT_TYPE)
-    
+
     await start_command(update, context)
     update.message.reply_text.assert_called_once()
     assert "Welcome" in update.message.reply_text.call_args[0][0]
@@ -30,7 +29,7 @@ async def test_help_command():
     update = MagicMock(spec=Update)
     update.message = AsyncMock()
     context = MagicMock(spec=ContextTypes.DEFAULT_TYPE)
-    
+
     await help_command(update, context)
     update.message.reply_text.assert_called_once()
     assert "Help & Instructions" in update.message.reply_text.call_args[0][0]
@@ -45,10 +44,13 @@ async def test_new_post_command_no_args(mock_download_bg):
     update.message = AsyncMock()
     update.message.text = "/new-post"
     context = MagicMock(spec=ContextTypes.DEFAULT_TYPE)
-    
+
     await new_post_command(update, context)
     update.message.reply_text.assert_called_once()
-    assert "Please provide an Instagram post URL" in update.message.reply_text.call_args[0][0]
+    assert (
+        "Please provide an Instagram post URL"
+        in update.message.reply_text.call_args[0][0]
+    )
     mock_download_bg.assert_not_called()
 
 
@@ -61,12 +63,12 @@ async def test_new_post_command_with_arg(mock_create_task):
     update.message = AsyncMock()
     update.message.text = "/new-post https://instagram.com/p/test"
     context = MagicMock(spec=ContextTypes.DEFAULT_TYPE)
-    
+
     await new_post_command(update, context)
-    
+
     # Check that download background task is scheduled
     mock_create_task.assert_called_once()
-    
+
     # Check that identity name keyboard selection is displayed
     update.message.reply_text.assert_called_once()
     assert "Downloading post images" in update.message.reply_text.call_args[0][0]

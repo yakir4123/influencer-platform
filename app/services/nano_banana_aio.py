@@ -6,12 +6,11 @@ using the asynchronous Google GenAI SDK.
 
 import os
 import io
-import time
 import logging
 import torch
 import numpy as np
 from PIL import Image
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Any
 import google.auth
 from google import genai
 from google.genai import types
@@ -44,23 +43,28 @@ def pil_to_tensor(pil_img: Image.Image) -> torch.Tensor:
 def _load_vertex_credentials(json_path: str):
     """Loads GCP service account credentials from a JSON key file."""
     from google.oauth2 import service_account
+
     try:
         creds = service_account.Credentials.from_service_account_file(json_path)
         project_id = creds.project_id
         return creds, project_id
     except Exception as e:
-        raise RuntimeError(f"Failed to load service account credentials from {json_path}: {e}")
+        raise RuntimeError(
+            f"Failed to load service account credentials from {json_path}: {e}"
+        )
 
 
 def _load_vertex_json_folder(folder_path: str) -> List[str]:
     """Loads all JSON files in the specified folder path."""
     if not os.path.isdir(folder_path):
         raise FileNotFoundError(f"Folder not found: {folder_path}")
-    json_files = sorted([
-        os.path.join(folder_path, f)
-        for f in os.listdir(folder_path)
-        if f.lower().endswith(".json")
-    ])
+    json_files = sorted(
+        [
+            os.path.join(folder_path, f)
+            for f in os.listdir(folder_path)
+            if f.lower().endswith(".json")
+        ]
+    )
     if not json_files:
         raise FileNotFoundError(f"No .json file found in: {folder_path}")
     return json_files
@@ -113,7 +117,9 @@ class NanoBananaAIO:
         Natively async generation method. Only VERTEX provider is supported.
         """
         if provider != "VERTEX":
-            raise ValueError(f"Provider '{provider}' is not supported in this lightweight async runtime. Only 'VERTEX' is supported.")
+            raise ValueError(
+                f"Provider '{provider}' is not supported in this lightweight async runtime. Only 'VERTEX' is supported."
+            )
 
         # Resolve credentials (rotation)
         vj_files = []
@@ -126,7 +132,9 @@ class NanoBananaAIO:
                 # Rotate credentials
                 off = NanoBananaAIO._vertex_rotation_offset % len(vj_files)
                 vj_files = vj_files[off:] + vj_files[:off]
-                NanoBananaAIO._vertex_rotation_offset = (off + batch_size) % len(vj_files)
+                NanoBananaAIO._vertex_rotation_offset = (off + batch_size) % len(
+                    vj_files
+                )
 
         vertex_json_path = vj_files[0] if vj_files else ""
         credentials = None
@@ -140,12 +148,18 @@ class NanoBananaAIO:
                 raise RuntimeError(f"Failed to load implicit credentials: {e}")
         else:
             credentials, project_id = _load_vertex_credentials(vertex_json_path)
-            logger.info(f"Loaded credentials from {vertex_json_path}. Project: {project_id}")
+            logger.info(
+                f"Loaded credentials from {vertex_json_path}. Project: {project_id}"
+            )
 
-        vertex_model_id = "gemini-3-pro-image-preview" if model == "Nano Banana Pro" else "gemini-3.5-flash-image-preview"
+        vertex_model_id = (
+            "gemini-3-pro-image-preview"
+            if model == "Nano Banana Pro"
+            else "gemini-3.5-flash-image-preview"
+        )
 
         # Prepare HTTP options
-        http_opts = genai.types.HttpOptions(timeout=300000, max_retries=0)  # timeout in ms (5 minutes)
+        http_opts = genai.types.HttpOptions(timeout=300000, max_retries=0)  # type: ignore
 
         client = genai.Client(
             vertexai=True,
@@ -159,19 +173,23 @@ class NanoBananaAIO:
         safety_threshold = "BLOCK_NONE" if disable_safety_threshold else None
         if safety_threshold:
             safety_settings = [
-                types.SafetySetting(category=cat, threshold=safety_threshold)
+                types.SafetySetting(category=cat, threshold=safety_threshold)  # type: ignore
                 for cat in _HARM_CATEGORIES
             ]
         else:
             safety_settings = None
 
         # Prepare GenerateContentConfig
-        config_kwargs = dict(
+        config_kwargs: dict[str, Any] = dict(
             response_modalities=["TEXT", "IMAGE"],
-            image_config=types.ImageConfig(aspect_ratio=aspect_ratio, image_size=image_size),
+            image_config=types.ImageConfig(
+                aspect_ratio=aspect_ratio, image_size=image_size
+            ),
             temperature=temperature,
             top_p=top_p,
-            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                disable=True
+            ),
             thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
         if safety_settings:
@@ -189,7 +207,7 @@ class NanoBananaAIO:
                 logger.warning(f"Failed to configure search tool: {e}")
 
         # Prepare contents
-        contents = [prompt]
+        contents: List[Union[str, Image.Image]] = [prompt]
         if image_1 is not None:
             pil_1 = tensor_to_pil(image_1)
             if pil_1:
@@ -201,7 +219,7 @@ class NanoBananaAIO:
 
         # Run async calls concurrently if batch_size > 1
         import asyncio
-        
+
         async def _call_api():
             try:
                 response = await client.aio.models.generate_content(
@@ -209,14 +227,18 @@ class NanoBananaAIO:
                     contents=contents,
                     config=config,
                 )
-                
+
                 # Check for blocked responses
                 cands = getattr(response, "candidates", None) or []
                 for cand in cands:
                     fr = getattr(cand, "finish_reason", None)
-                    if fr and fr not in (types.FinishReason.STOP,) and str(fr) not in ("0", "FINISH_REASON_UNSPECIFIED", "None"):
+                    if (
+                        fr
+                        and fr not in (types.FinishReason.STOP,)
+                        and str(fr) not in ("0", "FINISH_REASON_UNSPECIFIED", "None")
+                    ):
                         raise RuntimeError(f"Generation blocked: finish_reason={fr}")
-                
+
                 # Find image bytes
                 img_bytes = None
                 text_resp = ""
@@ -228,10 +250,10 @@ class NanoBananaAIO:
                                 img_bytes = part.inline_data.data
                             elif getattr(part, "text", None):
                                 text_resp += part.text
-                
+
                 if not img_bytes:
                     raise RuntimeError("No image data in response candidates.")
-                
+
                 # Convert back to PyTorch tensor
                 pil_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
                 image_np = np.array(pil_image).astype(np.float32) / 255.0

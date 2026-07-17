@@ -1,6 +1,5 @@
 """Module to provision Google Cloud Storage buckets."""
 
-import pulumi
 import pulumi_gcp as gcp
 
 

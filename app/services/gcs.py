@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 from typing import List, Optional
-from google.cloud import storage
+from google.cloud import storage  # type: ignore
 from app.core.config import settings
 
 logger = logging.getLogger("app.services.gcs")
@@ -27,7 +27,7 @@ def list_gcs_files(prefix: str) -> List[str]:
     client = get_gcs_client()
     if not client or not settings.GCS_BUCKET_NAME:
         return []
-    
+
     try:
         bucket = client.bucket(settings.GCS_BUCKET_NAME)
         # Ensure prefix has a trailing slash for distinct folders
@@ -35,11 +35,13 @@ def list_gcs_files(prefix: str) -> List[str]:
             prefix = prefix + "/"
         blobs = bucket.list_blobs(prefix=prefix)
         # We only want actual files, not prefix directories (blobs ending with /)
-        return sorted([
-            f"gs://{settings.GCS_BUCKET_NAME}/{blob.name}"
-            for blob in blobs
-            if not blob.name.endswith("/")
-        ])
+        return sorted(
+            [
+                f"gs://{settings.GCS_BUCKET_NAME}/{blob.name}"
+                for blob in blobs
+                if not blob.name.endswith("/")
+            ]
+        )
     except Exception as e:
         logger.error(f"Failed to list GCS files for prefix {prefix}: {e}")
         return []
@@ -52,7 +54,7 @@ def upload_file_to_gcs(local_path: Path, gcs_path: str) -> Optional[str]:
     client = get_gcs_client()
     if not client or not settings.GCS_BUCKET_NAME:
         return None
-    
+
     try:
         bucket = client.bucket(settings.GCS_BUCKET_NAME)
         blob = bucket.blob(gcs_path)
@@ -70,7 +72,7 @@ def delete_gcs_files(prefix: str) -> None:
     client = get_gcs_client()
     if not client or not settings.GCS_BUCKET_NAME:
         return
-    
+
     try:
         bucket = client.bucket(settings.GCS_BUCKET_NAME)
         if prefix and not prefix.endswith("/"):
@@ -103,4 +105,3 @@ def download_gcs_file_bytes(gcs_uri: str) -> Optional[bytes]:
     except Exception as e:
         logger.error(f"Failed to download GCS file {gcs_uri}: {e}")
         return None
-

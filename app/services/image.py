@@ -4,9 +4,11 @@ import logging
 import random
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 from PIL import Image, ImageDraw, ImageFilter
+from app.schemas.image import ImageGenerationRequest
 import aiohttp
+import httpx
 
 logger = logging.getLogger("app.services.image")
 
@@ -27,7 +29,7 @@ def compress_image_lossless(file_path: Path) -> Path:
         with Image.open(file_path) as img:
             # webp format supports lossless compression
             img.save(output_path, format="WEBP", lossless=True, quality=100)
-        
+
         # If output_path is different from the original file, delete the original
         if output_path != file_path and file_path.exists():
             file_path.unlink()
@@ -167,20 +169,21 @@ _PRESET_DIRECTIVES = {
     ),
 }
 
-from app.schemas.image import ImageGenerationRequest
 
-def generate_fallback_image(prompt: str, preset: str, count_idx: int, image_2: Optional[str] = None) -> Path:
+def generate_fallback_image(
+    prompt: str, preset: str, count_idx: int, image_2: Optional[str] = None
+) -> Path:
     """
     Creates a high-quality PIL image that composites the face from image_1 (identity reference from
     app/assets/gal.png) onto image_2 (scene/composition reference). If image_2 is not provided,
     it falls back to a dynamically generated gradient landscape.
     """
     from PIL import ImageFont
-    
+
     # Ensure temp dir exists
     temp_dir = Path("temp")
     temp_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # 1. Load image_1 (identity reference face)
     image_1_path = Path("app/assets/gal.png")
     try:
@@ -192,49 +195,60 @@ def generate_fallback_image(prompt: str, preset: str, count_idx: int, image_2: O
         draw_im1 = ImageDraw.Draw(im1)
         draw_im1.ellipse([300, 300, 700, 700], fill=(255, 255, 255, 255))
         draw_im1.text((350, 450), "Identity [gal.png]", fill=(0, 0, 0))
-        
+
     # 2. Load or generate image_2 (scene reference)
     im2 = None
     if image_2:
         try:
             if image_2.startswith("http"):
-                r = httpx.get(image_2, timeout=10.0)
+                resp = httpx.get(image_2, timeout=10.0)
                 from io import BytesIO
-                im2 = Image.open(BytesIO(r.content)).convert("RGBA")
+
+                im2 = Image.open(BytesIO(resp.content)).convert("RGBA")
             else:
                 im2 = Image.open(Path(image_2)).convert("RGBA")
-            logger.info(f"Loaded image_2 scene successfully.")
+            logger.info("Loaded image_2 scene successfully.")
         except Exception as e:
             logger.warning(f"Failed to load image_2 '{image_2}', using gradient: {e}")
             im2 = None
-            
+
     if im2 is None:
         # Create a gradient scene background
         im2 = Image.new("RGBA", (1024, 1024))
         draw_im2 = ImageDraw.Draw(im2)
-        color_start = (random.randint(20, 60), random.randint(20, 60), random.randint(100, 200), 255)
-        color_end = (random.randint(150, 250), random.randint(50, 150), random.randint(50, 150), 255)
+        color_start = (
+            random.randint(20, 60),
+            random.randint(20, 60),
+            random.randint(100, 200),
+            255,
+        )
+        color_end = (
+            random.randint(150, 250),
+            random.randint(50, 150),
+            random.randint(50, 150),
+            255,
+        )
         for y in range(1024):
             r = int(color_start[0] + (color_end[0] - color_start[0]) * (y / 1024))
             g = int(color_start[1] + (color_end[1] - color_start[1]) * (y / 1024))
             b = int(color_start[2] + (color_end[2] - color_start[2]) * (y / 1024))
             draw_im2.line([(0, y), (1024, y)], fill=(r, g, b, 255))
-            
+
     # Resize both to standard 1024x1024
     target_size = (1024, 1024)
     im1 = im1.resize(target_size, Image.Resampling.LANCZOS)
     im2 = im2.resize(target_size, Image.Resampling.LANCZOS)
-    
+
     # Create feathered circular mask to extract the face from im1 (gal.png)
     mask = Image.new("L", target_size, 0)
     draw_mask = ImageDraw.Draw(mask)
     cx, cy, r = 512, 350, 200
     draw_mask.ellipse([cx - r, cy - r, cx + r, cy + r], fill=255)
     mask = mask.filter(ImageFilter.GaussianBlur(15))
-    
+
     # Blend/Composite: place face of im1 onto scene of im2
     composite = Image.composite(im1, im2, mask)
-    
+
     # Draw overlays
     draw = ImageDraw.Draw(composite)
     font = None
@@ -247,11 +261,16 @@ def generate_fallback_image(prompt: str, preset: str, count_idx: int, image_2: O
             pass
 
     text_content = f"Model: Nano Banana Pro\nProvider: VERTEX (PIL Blend)\nPreset: {preset}\nPrompt: {prompt[:50]}...\nVariation: {count_idx + 1}"
-    
+
     draw.text((50, 50), "AI RE-POSED & BLENDED IMAGE", fill=(255, 255, 255), font=font)
     draw.text((50, 100), text_content, fill=(255, 255, 255), font=font)
-    draw.text((50, 950), f"Generated at: {time.strftime('%Y-%m-%d %H:%M:%S')}", fill=(200, 200, 200), font=font)
-    
+    draw.text(
+        (50, 950),
+        f"Generated at: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        fill=(200, 200, 200),
+        font=font,
+    )
+
     output_path = temp_dir / f"generated_{int(time.time() * 1000)}_{count_idx + 1}.png"
     composite.convert("RGB").save(output_path, "PNG")
     return output_path
@@ -306,35 +325,45 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
     except Exception as e:
         logger.error(f"Failed to load image_1 from {image_1_path}: {e}")
         from fastapi import HTTPException
+
         raise HTTPException(
             status_code=404,
-            detail=f"Identity reference image image_1 not found or corrupted: {e}"
+            detail=f"Identity reference image image_1 not found or corrupted: {e}",
         )
 
     # 2. Load image_2 as tensor
     tensor_image_2 = None
     if payload.image_2:
         try:
-            if payload.image_2.startswith("http"):
+            img2_path = payload.image_2
+            if img2_path.startswith("http"):
                 # Use aiohttp to download the image asynchronously
+                client_timeout = aiohttp.ClientTimeout(total=10.0)
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(payload.image_2, timeout=10.0) as r:
+                    async with session.get(img2_path, timeout=client_timeout) as r:
                         if r.status != 200:
-                            raise FileNotFoundError(f"HTTP GET returned status code {r.status}")
+                            raise FileNotFoundError(
+                                f"HTTP GET returned status code {r.status}"
+                            )
                         content = await r.read()
-                
+
                 # Decode image in thread pool
-                im2 = await asyncio.to_thread(lambda: Image.open(io.BytesIO(content)).convert("RGBA"))
+                im2 = await asyncio.to_thread(
+                    lambda: Image.open(io.BytesIO(content)).convert("RGBA")
+                )
             else:
-                im2 = await asyncio.to_thread(lambda: Image.open(Path(payload.image_2)).convert("RGBA"))
-                
+                im2 = await asyncio.to_thread(
+                    lambda: Image.open(Path(img2_path)).convert("RGBA")
+                )
+
             tensor_image_2 = await asyncio.to_thread(pil_to_tensor, im2)
         except Exception as e:
             logger.error(f"Failed to load image_2 '{payload.image_2}': {e}")
             from fastapi import HTTPException
+
             raise HTTPException(
                 status_code=404,
-                detail=f"Scene/pose reference image image_2 not found or corrupted: {e}"
+                detail=f"Scene/pose reference image image_2 not found or corrupted: {e}",
             )
 
     generated_images = []
@@ -346,52 +375,58 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
             raise ValueError("image_1 (gal.png) is missing or corrupted")
 
         # Determine aspect ratio
-        ar = payload.aspect_ratio
+        ar: Any = payload.aspect_ratio
         if ar == "auto":
             ref = tensor_image_2 if tensor_image_2 is not None else tensor_image_1
             _sh = ref.shape
             _h, _w = (_sh[-3], _sh[-2]) if len(_sh) == 4 else (_sh[0], _sh[1])
             _avg = _w / _h
             _AR_SUPPORTED = [
-                ("1:1",  1/1),  ("2:3",  2/3),  ("3:2",  3/2),
-                ("3:4",  3/4),  ("4:3",  4/3),  ("4:5",  4/5),
-                ("5:4",  5/4),  ("9:16", 9/16), ("16:9", 16/9),
-                ("21:9", 21/9),
+                ("1:1", 1 / 1),
+                ("2:3", 2 / 3),
+                ("3:2", 3 / 2),
+                ("3:4", 3 / 4),
+                ("4:3", 4 / 3),
+                ("4:5", 4 / 5),
+                ("5:4", 5 / 4),
+                ("9:16", 9 / 16),
+                ("16:9", 16 / 9),
+                ("21:9", 21 / 9),
             ]
             ar = min(_AR_SUPPORTED, key=lambda x: abs(x[1] - _avg))[0]
             logger.info(f"Auto Aspect Ratio detected: {ar}")
 
         aio = NanoBananaAIO()
-        logger.info(f"Running NanoBananaAIO.generate_unified...")
+        logger.info("Running NanoBananaAIO.generate_unified...")
         # Await the natively async generator method
         result = await aio.generate_unified(
-            provider                 = "VERTEX",
-            prompt                   = final_prompt,
-            negative_prompt          = "",
-            image_size               = payload.image_size,
-            gemini_api_key           = "",
-            wavespeed_api_key        = "",
-            kie_api_key              = "",
-            fal_api_key              = "",
-            vertex_json_folder       = payload.vertex_json_folder,
-            disable_safety_threshold = payload.disable_safety_threshold,
-            model                    = "Nano Banana Pro",
-            batch_size               = count,
-            use_search               = False,
-            system_instructions      = None,
-            aspect_ratio             = ar,
-            temperature              = payload.temperature,
-            top_p                    = 0.95,
-            fal_safety_tolerance     = "4",
-            fal_enable_web_search    = False,
-            image_1                  = tensor_image_1,
-            image_2                  = tensor_image_2,
-            video_mode_enabled       = False,
-            face_swap_enabled        = False,
-            breast_refiner_enabled   = False,
-            low_neck_enabled         = False,
-            face_expression          = "Neutral",
-            gpt2_image_quality       = "high",
+            provider="VERTEX",
+            prompt=final_prompt,
+            negative_prompt="",
+            image_size=payload.image_size,
+            gemini_api_key="",
+            wavespeed_api_key="",
+            kie_api_key="",
+            fal_api_key="",
+            vertex_json_folder=payload.vertex_json_folder,
+            disable_safety_threshold=payload.disable_safety_threshold,
+            model="Nano Banana Pro",
+            batch_size=count,
+            use_search=False,
+            system_instructions=None,
+            aspect_ratio=ar,
+            temperature=payload.temperature,
+            top_p=0.95,
+            fal_safety_tolerance="4",
+            fal_enable_web_search=False,
+            image_1=tensor_image_1,
+            image_2=tensor_image_2,
+            video_mode_enabled=False,
+            face_swap_enabled=False,
+            breast_refiner_enabled=False,
+            low_neck_enabled=False,
+            face_expression="Neutral",
+            gpt2_image_quality="high",
         )
 
         # Extract tensors from result
@@ -413,51 +448,68 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
             # Run PIL image creation & file saving in a thread pool (CPU & I/O bound)
             def _save_task(tns, idx):
                 pil_img = tensor_to_pil(tns)
-                out_path = temp_dir / f"generated_{int(time.time() * 1000)}_{idx + 1}.png"
+                out_path = (
+                    temp_dir / f"generated_{int(time.time() * 1000)}_{idx + 1}.png"
+                )
                 pil_img.save(out_path, format="PNG")
                 return str(out_path)
-            
+
             saved_path_str = await asyncio.to_thread(_save_task, img_tensor, i)
             generated_images.append(saved_path_str)
 
         if len(generated_images) < count:
-            raise RuntimeError(f"Requested {count} images, but only generated {len(generated_images)} via NanoBananaAIO.")
+            raise RuntimeError(
+                f"Requested {count} images, but only generated {len(generated_images)} via NanoBananaAIO."
+            )
 
         source = "NanoBananaAIO"
-        logger.info(f"Successfully generated {len(generated_images)} images via NanoBananaAIO.")
+        logger.info(
+            f"Successfully generated {len(generated_images)} images via NanoBananaAIO."
+        )
     except Exception as e:
-        logger.warning(f"NanoBananaAIO generation failed, falling back to PIL image blender. Error: {e}")
-        
+        logger.warning(
+            f"NanoBananaAIO generation failed, falling back to PIL image blender. Error: {e}"
+        )
+
         # ── Fallback PIL Generation (CPU bound) ──
         generated_images = []
         for i in range(count):
             out_path = await asyncio.to_thread(
-                generate_fallback_image, payload.prompt, payload.preset, i, payload.image_2
+                generate_fallback_image,
+                payload.prompt,
+                payload.preset,
+                i,
+                payload.image_2,
             )
             generated_images.append(str(out_path))
         source = "PIL Fallback Generator"
 
     # ── Upload to GCS if configured ──
     from app.core.config import settings
+
     if settings.GCS_BUCKET_NAME:
         import hashlib
         from datetime import datetime, timezone
         from app.services.gcs import upload_file_to_gcs
-        
+
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         prompt_hash = hashlib.sha256(payload.prompt.encode("utf-8")).hexdigest()[:10]
         gcs_prefix = f"generated_images/{date_str}/{prompt_hash}"
-        
+
         gcs_media_files = []
         for file_path_str in generated_images:
             local_file = Path(file_path_str)
-            
+
             # Compress image losslessly (CPU bound)
-            compressed_file = await asyncio.to_thread(compress_image_lossless, local_file)
-            
+            compressed_file = await asyncio.to_thread(
+                compress_image_lossless, local_file
+            )
+
             gcs_path = f"{gcs_prefix}/{compressed_file.name}"
             # GCS SDK call is blocking I/O, run in thread pool
-            gcs_uri = await asyncio.to_thread(upload_file_to_gcs, compressed_file, gcs_path)
+            gcs_uri = await asyncio.to_thread(
+                upload_file_to_gcs, compressed_file, gcs_path
+            )
             if gcs_uri:
                 gcs_media_files.append(gcs_uri)
                 # Cleanup local file (I/O bound)
@@ -465,14 +517,18 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
                     if compressed_file.exists():
                         await asyncio.to_thread(compressed_file.unlink)
                 except Exception as e:
-                    logger.warning(f"Failed to delete local generated file {compressed_file}: {e}")
+                    logger.warning(
+                        f"Failed to delete local generated file {compressed_file}: {e}"
+                    )
             else:
-                raise RuntimeError(f"Failed to upload generated image {compressed_file.name} to GCS.")
-        
+                raise RuntimeError(
+                    f"Failed to upload generated image {compressed_file.name} to GCS."
+                )
+
         generated_images = gcs_media_files
 
     return {
         "status": "success",
         "generated_images": generated_images,
-        "message": f"Successfully generated images via '{source}'. Final prompt used:\n\n{final_prompt}"
+        "message": f"Successfully generated images via '{source}'. Final prompt used:\n\n{final_prompt}",
     }

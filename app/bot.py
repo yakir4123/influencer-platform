@@ -3,7 +3,7 @@ import logging
 import sys
 from pathlib import Path
 from typing import Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -23,16 +23,16 @@ logger = logging.getLogger("app.bot")
 # In-memory dictionary to track session state for each chat
 # key: chat_id
 # value: dict of session variables
-USER_STATES = {}
+USER_STATES: dict[int, dict] = {}
 
 # Static mapping for identity names to images
-NAME_TO_IMAGE_MAP = {
-    "gal": "app/assets/gal.png"
-}
+NAME_TO_IMAGE_MAP = {"gal": "app/assets/gal.png"}
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for the /start command."""
+    if not update.message:
+        return
     welcome_text = (
         "🤖 *Welcome to the Influencer Platform Bot!*\n\n"
         "I can download Instagram posts and generate variations of them for you.\n\n"
@@ -46,6 +46,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for the /help command."""
+    if not update.message:
+        return
     help_text = (
         "📖 *Help & Instructions*\n\n"
         "Commands:\n"
@@ -65,15 +67,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def new_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for the /new-post and /new_post command."""
+    if not update.message or not update.effective_chat or not update.message.text:
+        return
     chat_id = update.effective_chat.id
     text = update.message.text
-    
+
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
         await update.message.reply_text(
             "⚠️ Please provide an Instagram post URL. Example:\n"
             "`/new-post https://www.instagram.com/p/DFhQzTqOa72/`",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
         return
 
@@ -98,13 +102,15 @@ async def new_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     # Dynamic buttons based on Name to Image map
     for name in NAME_TO_IMAGE_MAP.keys():
-        keyboard.append([InlineKeyboardButton(name, callback_data=f"select_name:{name}")])
-    
+        keyboard.append(
+            [InlineKeyboardButton(name, callback_data=f"select_name:{name}")]
+        )
+
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         "📥 Downloading post images in the background...\n\n"
         "While waiting, please select the identity reference name:",
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
     )
 
 
@@ -112,10 +118,10 @@ async def download_post_bg(chat_id: int, url: str, context: ContextTypes.DEFAULT
     """Background task to download Instagram post."""
     try:
         result = await download_instagram_post(url)
-        
+
         all_files = result.get("media_files", [])
         image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-        
+
         media_files = []
         for f_path in all_files:
             # strip "gs://" prefix just to check extension if it's GCS URI
@@ -140,8 +146,7 @@ async def download_post_bg(chat_id: int, url: str, context: ContextTypes.DEFAULT
         if chat_id in USER_STATES:
             USER_STATES[chat_id]["download_status"] = "failed"
         await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"❌ Failed to download Instagram post: {str(e)}"
+            chat_id=chat_id, text=f"❌ Failed to download Instagram post: {str(e)}"
         )
 
 
@@ -152,7 +157,7 @@ async def proceed_after_download(chat_id: int, context: ContextTypes.DEFAULT_TYP
 
     await context.bot.send_message(
         chat_id=chat_id,
-        text=f"✅ Download finished! Sending {len(media_files)} images with ascending numbers:"
+        text=f"✅ Download finished! Sending {len(media_files)} images with ascending numbers:",
     )
 
     # Send each image sequentially
@@ -161,20 +166,27 @@ async def proceed_after_download(chat_id: int, context: ContextTypes.DEFAULT_TYP
         try:
             if file_path.startswith("gs://"):
                 from app.services.gcs import download_gcs_file_bytes
+
                 img_bytes = download_gcs_file_bytes(file_path)
                 if img_bytes:
-                    await context.bot.send_photo(chat_id=chat_id, photo=img_bytes, caption=caption)
+                    await context.bot.send_photo(
+                        chat_id=chat_id, photo=img_bytes, caption=caption
+                    )
                 else:
                     await context.bot.send_message(
                         chat_id=chat_id,
-                        text=f"⚠️ Failed to read image {idx + 1} from Cloud Storage."
+                        text=f"⚠️ Failed to read image {idx + 1} from Cloud Storage.",
                     )
             else:
                 with open(file_path, "rb") as f:
-                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=caption)
+                    await context.bot.send_photo(
+                        chat_id=chat_id, photo=f, caption=caption
+                    )
         except Exception as e:
             logger.error(f"Failed to send image {idx + 1} ({file_path}): {e}")
-            await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Error sending image {idx + 1}: {e}")
+            await context.bot.send_message(
+                chat_id=chat_id, text=f"⚠️ Error sending image {idx + 1}: {e}"
+            )
 
     # Prompt user with multi-select buttons
     await send_multiselect_keyboard(chat_id, context)
@@ -188,30 +200,34 @@ async def send_multiselect_keyboard(chat_id: int, context: ContextTypes.DEFAULT_
 
     keyboard = []
     current_row = []
-    
+
     for i in range(len(media_files)):
         num = i + 1
         is_sel = i in selected
         tick = "✓" if is_sel else " "
         btn_text = f"[{tick}] {num}"
-        current_row.append(InlineKeyboardButton(btn_text, callback_data=f"toggle_img:{i}"))
-        
+        current_row.append(
+            InlineKeyboardButton(btn_text, callback_data=f"toggle_img:{i}")
+        )
+
         # 4 buttons per row max
         if len(current_row) == 4:
             keyboard.append(current_row)
             current_row = []
-            
+
     if current_row:
         keyboard.append(current_row)
 
     # Confirm selection button
-    keyboard.append([InlineKeyboardButton("Confirm Selection", callback_data="confirm_images")])
+    keyboard.append(
+        [InlineKeyboardButton("Confirm Selection", callback_data="confirm_images")]
+    )
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await context.bot.send_message(
         chat_id=chat_id,
         text="👉 Select the images you want to generate variations for, then click Confirm Selection:",
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
     )
 
 
@@ -230,10 +246,7 @@ async def ask_image_generation_config(chat_id: int, context: ContextTypes.DEFAUL
 
     # Initialize configs if not exists
     if orig_idx not in state["gen_configs"]:
-        state["gen_configs"][orig_idx] = {
-            "is_selfie": False,
-            "is_mirror_selfie": False
-        }
+        state["gen_configs"][orig_idx] = {"is_selfie": False, "is_mirror_selfie": False}
 
     cfg = state["gen_configs"][orig_idx]
     selfie_tick = "✓" if cfg["is_selfie"] else " "
@@ -241,12 +254,19 @@ async def ask_image_generation_config(chat_id: int, context: ContextTypes.DEFAUL
 
     keyboard = [
         [
-            InlineKeyboardButton(f"[{selfie_tick}] Selfie", callback_data=f"toggle_cfg:selfie:{orig_idx}"),
-            InlineKeyboardButton(f"[{mirror_tick}] Mirror Selfie", callback_data=f"toggle_cfg:mirror:{orig_idx}")
+            InlineKeyboardButton(
+                f"[{selfie_tick}] Selfie", callback_data=f"toggle_cfg:selfie:{orig_idx}"
+            ),
+            InlineKeyboardButton(
+                f"[{mirror_tick}] Mirror Selfie",
+                callback_data=f"toggle_cfg:mirror:{orig_idx}",
+            ),
         ],
         [
-            InlineKeyboardButton("Next / Confirm", callback_data=f"confirm_cfg:{orig_idx}")
-        ]
+            InlineKeyboardButton(
+                "Next / Confirm", callback_data=f"confirm_cfg:{orig_idx}"
+            )
+        ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -258,10 +278,7 @@ async def ask_image_generation_config(chat_id: int, context: ContextTypes.DEFAUL
     )
 
     await context.bot.send_message(
-        chat_id=chat_id,
-        text=text,
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
+        chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown"
     )
 
 
@@ -274,14 +291,13 @@ async def generate_images_session(chat_id: int, context: ContextTypes.DEFAULT_TY
 
     await context.bot.send_message(
         chat_id=chat_id,
-        text=f"🚀 Starting generation session of {len(queue)} images. Please wait..."
+        text=f"🚀 Starting generation session of {len(queue)} images. Please wait...",
     )
 
     for count_idx, (orig_idx, img_path) in enumerate(queue):
         cfg = configs[orig_idx]
         await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"🎨 Generating variation for Image {orig_idx + 1}..."
+            chat_id=chat_id, text=f"🎨 Generating variation for Image {orig_idx + 1}..."
         )
 
         payload = ImageGenerationRequest(
@@ -293,12 +309,12 @@ async def generate_images_session(chat_id: int, context: ContextTypes.DEFAULT_TY
             image_2=img_path,
             is_selfie=cfg["is_selfie"],
             is_mirror_selfie=cfg["is_mirror_selfie"],
-            identity_name=identity_name
+            identity_name=identity_name,
         )
 
         try:
             res = await generate_reposed_image(payload)
-            
+
             gen_images = res.get("generated_images", [])
             if not gen_images:
                 raise ValueError("No images returned from generator.")
@@ -311,40 +327,52 @@ async def generate_images_session(chat_id: int, context: ContextTypes.DEFAULT_TY
                 )
                 if file_path.startswith("gs://"):
                     from app.services.gcs import download_gcs_file_bytes
+
                     img_bytes = download_gcs_file_bytes(file_path)
                     if img_bytes:
-                        await context.bot.send_photo(chat_id=chat_id, photo=img_bytes, caption=caption)
+                        await context.bot.send_photo(
+                            chat_id=chat_id, photo=img_bytes, caption=caption
+                        )
                     else:
                         await context.bot.send_message(
                             chat_id=chat_id,
-                            text=f"⚠️ Failed to read generated image from storage: {file_path}"
+                            text=f"⚠️ Failed to read generated image from storage: {file_path}",
                         )
                 else:
                     with open(file_path, "rb") as f:
-                        await context.bot.send_photo(chat_id=chat_id, photo=f, caption=caption)
+                        await context.bot.send_photo(
+                            chat_id=chat_id, photo=f, caption=caption
+                        )
         except Exception as e:
-            logger.error(f"Generation failed for Image {orig_idx + 1}: {e}", exc_info=True)
+            logger.error(
+                f"Generation failed for Image {orig_idx + 1}: {e}", exc_info=True
+            )
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"❌ Failed to generate variation for Image {orig_idx + 1}: {str(e)}"
+                text=f"❌ Failed to generate variation for Image {orig_idx + 1}: {str(e)}",
             )
 
     await context.bot.send_message(
-        chat_id=chat_id,
-        text="🎉 All variations have been generated and sent!"
+        chat_id=chat_id, text="🎉 All variations have been generated and sent!"
     )
 
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Callback query dispatcher for interactive inline keyboard buttons."""
     query = update.callback_query
+    if not query or not query.message or not query.data or not update.effective_chat:
+        return
+    if not isinstance(query.message, Message):
+        return
     await query.answer()
 
-    chat_id = query.message.chat_id
+    chat_id = update.effective_chat.id
     data = query.data
 
     if chat_id not in USER_STATES:
-        await query.message.reply_text("⚠️ Session not found or expired. Use `/new-post` to start.")
+        await query.message.reply_text(
+            "⚠️ Session not found or expired. Use `/new-post` to start."
+        )
         return
 
     state = USER_STATES[chat_id]
@@ -353,19 +381,23 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     if data.startswith("select_name:"):
         name = data.split(":", 1)[1]
         state["identity_name"] = name
-        await query.edit_message_text(f"Identity selected: *{name}*", parse_mode="Markdown")
+        await query.edit_message_text(
+            f"Identity selected: *{name}*", parse_mode="Markdown"
+        )
 
         # If download is already finished, proceed immediately
         if state["download_status"] == "finished":
             await proceed_after_download(chat_id, context)
         elif state["download_status"] == "downloading":
-            await query.message.reply_text("Identity selected. Downloading images, please wait...")
+            await query.message.reply_text(
+                "Identity selected. Downloading images, please wait..."
+            )
 
     # 2. Image multi-select toggle
     elif data.startswith("toggle_img:"):
         idx = int(data.split(":", 1)[1])
         selected = state["selected_indices"]
-        
+
         if idx in selected:
             selected.remove(idx)
         else:
@@ -379,16 +411,20 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             is_sel = i in selected
             tick = "✓" if is_sel else " "
             btn_text = f"[{tick}] {num}"
-            current_row.append(InlineKeyboardButton(btn_text, callback_data=f"toggle_img:{i}"))
-            
+            current_row.append(
+                InlineKeyboardButton(btn_text, callback_data=f"toggle_img:{i}")
+            )
+
             if len(current_row) == 4:
                 keyboard.append(current_row)
                 current_row = []
-                
+
         if current_row:
             keyboard.append(current_row)
 
-        keyboard.append([InlineKeyboardButton("Confirm Selection", callback_data="confirm_images")])
+        keyboard.append(
+            [InlineKeyboardButton("Confirm Selection", callback_data="confirm_images")]
+        )
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.edit_message_reply_markup(reply_markup=reply_markup)
@@ -402,11 +438,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         # Clean/update message
         selected_text = ", ".join(str(i + 1) for i in sorted(selected))
-        await query.edit_message_text(f"Images selected for variations: {selected_text}")
+        await query.edit_message_text(
+            f"Images selected for variations: {selected_text}"
+        )
 
         # Construct generation queue
         sorted_indices = sorted(list(selected))
-        state["gen_queue"] = [(idx, state["media_files"][idx]) for idx in sorted_indices]
+        state["gen_queue"] = [
+            (idx, state["media_files"][idx]) for idx in sorted_indices
+        ]
         state["current_gen_idx"] = 0
         state["gen_configs"] = {}
 
@@ -431,12 +471,20 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         keyboard = [
             [
-                InlineKeyboardButton(f"[{selfie_tick}] Selfie", callback_data=f"toggle_cfg:selfie:{orig_idx}"),
-                InlineKeyboardButton(f"[{mirror_tick}] Mirror Selfie", callback_data=f"toggle_cfg:mirror:{orig_idx}")
+                InlineKeyboardButton(
+                    f"[{selfie_tick}] Selfie",
+                    callback_data=f"toggle_cfg:selfie:{orig_idx}",
+                ),
+                InlineKeyboardButton(
+                    f"[{mirror_tick}] Mirror Selfie",
+                    callback_data=f"toggle_cfg:mirror:{orig_idx}",
+                ),
             ],
             [
-                InlineKeyboardButton("Next / Confirm", callback_data=f"confirm_cfg:{orig_idx}")
-            ]
+                InlineKeyboardButton(
+                    "Next / Confirm", callback_data=f"confirm_cfg:{orig_idx}"
+                )
+            ],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -450,7 +498,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             f"- *Mirror Selfie*: {'Yes' if cfg['is_mirror_selfie'] else 'No'}"
         )
 
-        await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode="Markdown")
+        await query.edit_message_text(
+            text=text, reply_markup=reply_markup, parse_mode="Markdown"
+        )
 
     # 5. Confirm configuration for current image
     elif data.startswith("confirm_cfg:"):
@@ -484,7 +534,9 @@ async def run_bot_async():
     """Starts the Telegram bot in webhook or long polling mode asynchronously."""
     global _bot_app
     if not settings.TELEGRAM_BOT_TOKEN:
-        logger.warning("TELEGRAM_BOT_TOKEN is not configured. Telegram Bot will not start.")
+        logger.warning(
+            "TELEGRAM_BOT_TOKEN is not configured. Telegram Bot will not start."
+        )
         return
 
     logger.info("Initializing Telegram Bot...")
@@ -502,12 +554,14 @@ async def run_bot_async():
 
     if settings.TELEGRAM_BOT_WEBHOOK_URL:
         import hashlib
+
         secret_token = hashlib.sha256(settings.TELEGRAM_BOT_TOKEN.encode()).hexdigest()
         await _bot_app.bot.set_webhook(
-            url=settings.TELEGRAM_BOT_WEBHOOK_URL,
-            secret_token=secret_token
+            url=settings.TELEGRAM_BOT_WEBHOOK_URL, secret_token=secret_token
         )
-        logger.info(f"Telegram Bot is running in webhook mode. URL: {settings.TELEGRAM_BOT_WEBHOOK_URL}")
+        logger.info(
+            f"Telegram Bot is running in webhook mode. URL: {settings.TELEGRAM_BOT_WEBHOOK_URL}"
+        )
     else:
         await _bot_app.updater.start_polling(drop_pending_updates=True)
         logger.info("Telegram Bot is running in long-polling mode.")
@@ -533,17 +587,17 @@ async def stop_bot_async():
 
 if __name__ == "__main__":
     # If run standalone: python -m app.bot
-    import os
+
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        level=logging.INFO
+        level=logging.INFO,
     )
     if not settings.TELEGRAM_BOT_TOKEN:
         print("❌ Error: TELEGRAM_BOT_TOKEN is not set.")
         sys.exit(1)
 
     print("🤖 Starting Telegram Bot...")
-    
+
     # Simple loop run for CLI mode
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

@@ -10,7 +10,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 from urllib.parse import parse_qs, unquote, urlparse, urlunparse
 
 import aiohttp
@@ -25,9 +25,19 @@ logger = logging.getLogger("app.services.instagram")
 
 MEDIA_EXTS = {
     # Images
-    ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tiff",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".bmp",
+    ".gif",
+    ".tiff",
     # Videos
-    ".mp4", ".webm", ".mov", ".m4v", ".avi"
+    ".mp4",
+    ".webm",
+    ".mov",
+    ".m4v",
+    ".avi",
 }
 
 
@@ -37,7 +47,8 @@ def log(message: str) -> None:
 
 def ensure_gallery_dl() -> bool:
     try:
-        import gallery_dl  # noqa: F401
+        import gallery_dl  # type: ignore # noqa: F401
+
         version = getattr(gallery_dl, "__version__", "unknown")
         log(f"gallery-dl ready. version={version}")
         return True
@@ -124,7 +135,7 @@ def safe_name_from_url(url: str) -> str:
     return f"{raw[:80]}_{url_hash}"
 
 
-def pick_extension_from_headers(headers: dict | aiohttp.Headers, url: str) -> str:
+def pick_extension_from_headers(headers: Any, url: str) -> str:
     content_type = headers.get("content-type", "").split(";")[0].strip().lower()
 
     content_type_to_ext = {
@@ -261,7 +272,7 @@ def wait_for_media_stable(
 def get_base_directory(save_to: str) -> str:
     # Use relative workspace downloads folder
     base_dir = Path("downloads")
-    
+
     if save_to == "input":
         target = base_dir / "input"
     elif save_to == "output":
@@ -280,15 +291,16 @@ def clear_directory(path: str | Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-def download_direct_image(
-    url: str,
-    out_dir: str | Path,
-    timeout: int,
+async def download_direct_image(
+    url: str, out_dir: Path | str, timeout: float
 ) -> tuple[list[str], str]:
+    """
+    Downloads a single image from a direct URL and returns it as a list with a summary.
+    """
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    log(f"Downloading direct image URL.")
+    log("Downloading direct image URL.")
     log(f"Download folder: {out_path}")
 
     headers = {
@@ -299,43 +311,39 @@ def download_direct_image(
         )
     }
 
-async def download_direct_image(url: str, out_dir: Path, timeout: int) -> tuple[list[str], str]:
-    """
-    Downloads a single image from a direct URL and returns it as a list with a summary.
-    """
-    log(f"Downloading direct image URL.")
-    log(f"Download folder: {out_dir}")
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/126.0 Safari/537.36"
-        )
-    }
-
+    client_timeout = aiohttp.ClientTimeout(total=timeout)
     async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers, timeout=timeout, allow_redirects=True) as response:
+        async with session.get(
+            url, headers=headers, timeout=client_timeout, allow_redirects=True
+        ) as response:
             response.raise_for_status()
             content_type = response.headers.get("content-type", "").lower()
 
-            if not content_type.startswith("image/") and not content_type.startswith("video/"):
-                raise ValueError(f"URL did not return media. Content-Type was: {content_type}")
+            if not content_type.startswith("image/") and not content_type.startswith(
+                "video/"
+            ):
+                raise ValueError(
+                    f"URL did not return media. Content-Type was: {content_type}"
+                )
 
             ext = pick_extension_from_headers(response.headers, url)
-            filename = f"direct_{hashlib.sha1(url.encode('utf-8')).hexdigest()[:12]}{ext}"
-            local_path = out_dir / filename
+            filename = (
+                f"direct_{hashlib.sha1(url.encode('utf-8')).hexdigest()[:12]}{ext}"
+            )
+            local_path = out_path / filename
 
             # Write file in background thread
             content = await response.read()
+
             def _write():
                 with local_path.open("wb") as f:
                     f.write(content)
+
             await asyncio.to_thread(_write)
 
     media_files = await asyncio.to_thread(
         wait_for_media_stable,
-        folder=out_dir,
+        folder=out_path,
         min_count=1,
         timeout_seconds=10,
         stable_checks_required=2,
@@ -538,7 +546,7 @@ async def resolve_download(
     # 1. If Google Cloud Storage is enabled
     if settings.GCS_BUCKET_NAME:
         gcs_prefix = f"instagram_posts/{folder_name}"
-        
+
         # Check cache if not forcing refresh
         if not force_refresh:
             cached_files = await asyncio.to_thread(list_gcs_files, prefix=gcs_prefix)
@@ -592,21 +600,27 @@ async def resolve_download(
                 )
 
             # Compress downloaded images losslessly
-            compressed_media_files = []
+            compressed_paths: list[Path] = []
             for file_path_str in media_files:
                 local_file = Path(file_path_str)
-                compressed_file = await asyncio.to_thread(compress_image_lossless, local_file)
-                compressed_media_files.append(compressed_file)
+                compressed_file = await asyncio.to_thread(
+                    compress_image_lossless, local_file
+                )
+                compressed_paths.append(compressed_file)
 
             # Upload compressed files to GCS
             gcs_media_files = []
-            for local_file in compressed_media_files:
+            for local_file in compressed_paths:
                 gcs_path = f"{gcs_prefix}/{local_file.name}"
-                gcs_uri = await asyncio.to_thread(upload_file_to_gcs, local_file, gcs_path)
+                gcs_uri = await asyncio.to_thread(
+                    upload_file_to_gcs, local_file, gcs_path
+                )
                 if gcs_uri:
                     gcs_media_files.append(gcs_uri)
                 else:
-                    raise RuntimeError(f"Failed to upload media file {local_file.name} to GCS.")
+                    raise RuntimeError(
+                        f"Failed to upload media file {local_file.name} to GCS."
+                    )
 
             original_summary = json.loads(summary_str)
             summary = {
@@ -652,7 +666,9 @@ async def resolve_download(
 
     if cached_files and not force_refresh and len(cached_files) >= min_needed:
         log(f"Using cached files. count={len(cached_files)}")
-        log("Note: cached files use filesystem order. Use force_refresh=True if carousel order looks wrong.")
+        log(
+            "Note: cached files use filesystem order. Use force_refresh=True if carousel order looks wrong."
+        )
 
         summary = {
             "mode": "cache",
@@ -689,12 +705,12 @@ async def resolve_download(
         )
 
     # Compress downloaded images losslessly for local fallback too
-    compressed_media_files = []
+    local_compressed = []
     for file_path_str in media_files:
         local_file = Path(file_path_str)
         compressed_file = await asyncio.to_thread(compress_image_lossless, local_file)
-        compressed_media_files.append(str(compressed_file.resolve()))
-    media_files = compressed_media_files
+        local_compressed.append(str(compressed_file.resolve()))
+    media_files = local_compressed
 
     original_summary = json.loads(summary_str)
     summary = {
@@ -703,7 +719,13 @@ async def resolve_download(
     }
     summary_str = json.dumps(summary, indent=2, ensure_ascii=False)
 
-    return original_source_url, download_source_url, media_files, summary_str, str(download_dir.resolve())
+    return (
+        original_source_url,
+        download_source_url,
+        media_files,
+        summary_str,
+        str(download_dir.resolve()),
+    )
 
 
 async def download_instagram_post(
@@ -728,7 +750,9 @@ async def download_instagram_post(
             log(f"Using cookies file from path: {cookies_file}")
         else:
             try:
-                with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tf:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", delete=False, suffix=".txt"
+                ) as tf:
                     tf.write(settings.INSTAGRAM_COOKIES)
                     temp_cookies_path = tf.name
                 cookies_file = temp_cookies_path
@@ -759,7 +783,9 @@ async def download_instagram_post(
             "selected_image_index": selected_image_index,
             "url_img_index_override": url_img_index,
             "download_dir": download_dir,
-            "media_files": [f if f.startswith("gs://") else os.path.abspath(f) for f in media_files],
+            "media_files": [
+                f if f.startswith("gs://") else os.path.abspath(f) for f in media_files
+            ],
             "summary": parsed_summary,
         }
     finally:

@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+
 def test_read_root(client):
     response = client.get("/")
     assert response.status_code == 200
@@ -16,9 +17,6 @@ def test_health_check(client):
     assert "version" in data
 
 
-
-
-
 @patch("app.api.routes.settings")
 @patch("app.bot.get_bot_app")
 def test_telegram_webhook_unauthorized(mock_get_bot_app, mock_settings, client):
@@ -26,7 +24,7 @@ def test_telegram_webhook_unauthorized(mock_get_bot_app, mock_settings, client):
     response = client.post(
         "/api/v1/telegram-webhook",
         json={"update_id": 123},
-        headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"}
+        headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
     )
     assert response.status_code == 403
     assert "Invalid webhook secret token" in response.json()["detail"]
@@ -42,17 +40,12 @@ def test_telegram_webhook_success(mock_get_bot_app, mock_settings, client):
     mock_bot_app = MagicMock()
     mock_bot_app.process_update = AsyncMock()
     mock_get_bot_app.return_value = mock_bot_app
-    
+
     secret_token = hashlib.sha256(b"12345:token").hexdigest()
     response = client.post(
         "/api/v1/telegram-webhook",
         json={"update_id": 123},
-        headers={"X-Telegram-Bot-Api-Secret-Token": secret_token}
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret_token},
     )
     assert response.status_code == 200
     assert response.json() == {"status": "success"}
-
-
-
-
-

@@ -1,6 +1,5 @@
 """Module to provision Google Artifact Registry repositories."""
 
-import pulumi
 import pulumi_gcp as gcp
 
 

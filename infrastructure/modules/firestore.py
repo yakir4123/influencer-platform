@@ -1,6 +1,5 @@
 """Module to provision Firestore database in Native mode."""
 
-import pulumi
 import pulumi_gcp as gcp
 
 
