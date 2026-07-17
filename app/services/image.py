@@ -4,7 +4,7 @@ import logging
 import random
 import time
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, Union
 from PIL import Image, ImageDraw, ImageFilter
 from app.schemas.image import ImageGenerationRequest
 import aiohttp
@@ -171,7 +171,10 @@ _PRESET_DIRECTIVES = {
 
 
 def generate_fallback_image(
-    prompt: str, preset: str, count_idx: int, image_2: Optional[str] = None
+    prompt: str,
+    preset: str,
+    count_idx: int,
+    image_2: Optional[Union[str, Image.Image]] = None,
 ) -> Path:
     """
     Creates a high-quality PIL image that composites the face from image_1 (identity reference from
@@ -200,13 +203,28 @@ def generate_fallback_image(
     im2 = None
     if image_2:
         try:
-            if image_2.startswith("http"):
-                resp = httpx.get(image_2, timeout=10.0)
-                from io import BytesIO
+            if isinstance(image_2, Image.Image):
+                im2 = image_2.convert("RGBA")
+            elif isinstance(image_2, str):
+                if image_2.startswith("http"):
+                    resp = httpx.get(image_2, timeout=10.0)
+                    from io import BytesIO
 
-                im2 = Image.open(BytesIO(resp.content)).convert("RGBA")
-            else:
-                im2 = Image.open(Path(image_2)).convert("RGBA")
+                    im2 = Image.open(BytesIO(resp.content)).convert("RGBA")
+                elif image_2.startswith("gs://"):
+                    from app.services.gcs import download_gcs_file_bytes
+
+                    gcs_content = download_gcs_file_bytes(image_2)
+                    if gcs_content:
+                        from io import BytesIO
+
+                        im2 = Image.open(BytesIO(gcs_content)).convert("RGBA")
+                    else:
+                        raise FileNotFoundError(
+                            f"Failed to download GCS URI: {image_2}"
+                        )
+                else:
+                    im2 = Image.open(Path(image_2)).convert("RGBA")
             logger.info("Loaded image_2 scene successfully.")
         except Exception as e:
             logger.warning(f"Failed to load image_2 '{image_2}', using gradient: {e}")
@@ -470,7 +488,7 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
                 payload.prompt,
                 payload.preset,
                 i,
-                payload.image_2,
+                im2 or payload.image_2,
             )
             generated_images.append(str(out_path))
         source = "PIL Fallback Generator"

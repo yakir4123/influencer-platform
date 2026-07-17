@@ -53,3 +53,10 @@ def configure_iam(
         role="roles/datastore.user",
         member=sa_member,
     )
+
+    gcp.projects.IAMMember(
+        "project-vertex-user",
+        project=project_id,
+        role="roles/aiplatform.user",
+        member=sa_member,
+    )
