@@ -19,12 +19,12 @@ def health_check() -> HealthStatus:
 
 
 @router.post("/download-post", response_model=InstagramDownloadResponse)
-def download_post(payload: InstagramDownloadRequest) -> InstagramDownloadResponse:
+async def download_post(payload: InstagramDownloadRequest) -> InstagramDownloadResponse:
     """
     Download an entire Instagram post from a given URL.
     """
     try:
-        result = download_instagram_post(
+        result = await download_instagram_post(
             source_url=payload.url,
             max_items=payload.max_items,
             force_refresh=payload.force_refresh,
@@ -38,12 +38,12 @@ def download_post(payload: InstagramDownloadRequest) -> InstagramDownloadRespons
 
 
 @router.post("/generate-image", response_model=ImageGenerationResponse)
-def generate_image(payload: ImageGenerationRequest) -> ImageGenerationResponse:
+async def generate_image(payload: ImageGenerationRequest) -> ImageGenerationResponse:
     """
     Generate images based on a text prompt using Vertex AI (mocked).
     """
     try:
-        result = generate_reposed_image(payload)
+        result = await generate_reposed_image(payload)
         return ImageGenerationResponse(**result)
     except HTTPException as he:
         raise he

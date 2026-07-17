@@ -1,10 +1,12 @@
+import asyncio
+import io
 import logging
 import random
 import time
 from pathlib import Path
 from typing import Optional
 from PIL import Image, ImageDraw, ImageFilter
-import httpx
+import aiohttp
 
 logger = logging.getLogger("app.services.image")
 
@@ -255,7 +257,7 @@ def generate_fallback_image(prompt: str, preset: str, count_idx: int, image_2: O
     return output_path
 
 
-def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
+async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
     """
     Generates images using the ComfyUI NanoBananaAIO engine,
     statically loading image_1 from app/assets/gal.png and optionally blending with image_2.
@@ -297,10 +299,10 @@ def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
         arr = np.array(pil_img).astype(np.float32) / 255.0
         return torch.from_numpy(arr).unsqueeze(0)
 
-    # 1. Load image_1 as tensor
+    # 1. Load image_1 as tensor (run in thread since Image.open/numpy conversion are CPU-bound)
     try:
-        im1 = Image.open(image_1_path)
-        tensor_image_1 = pil_to_tensor(im1)
+        im1 = await asyncio.to_thread(Image.open, image_1_path)
+        tensor_image_1 = await asyncio.to_thread(pil_to_tensor, im1)
     except Exception as e:
         logger.error(f"Failed to load image_1 from {image_1_path}: {e}")
         from fastapi import HTTPException
@@ -314,14 +316,19 @@ def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
     if payload.image_2:
         try:
             if payload.image_2.startswith("http"):
-                r = httpx.get(payload.image_2, timeout=10.0)
-                if r.status_code != 200:
-                    raise FileNotFoundError(f"HTTP GET returned status code {r.status_code}")
-                from io import BytesIO
-                im2 = Image.open(BytesIO(r.content))
+                # Use aiohttp to download the image asynchronously
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(payload.image_2, timeout=10.0) as r:
+                        if r.status != 200:
+                            raise FileNotFoundError(f"HTTP GET returned status code {r.status}")
+                        content = await r.read()
+                
+                # Decode image in thread pool
+                im2 = await asyncio.to_thread(lambda: Image.open(io.BytesIO(content)).convert("RGBA"))
             else:
-                im2 = Image.open(Path(payload.image_2))
-            tensor_image_2 = pil_to_tensor(im2)
+                im2 = await asyncio.to_thread(lambda: Image.open(Path(payload.image_2)).convert("RGBA"))
+                
+            tensor_image_2 = await asyncio.to_thread(pil_to_tensor, im2)
         except Exception as e:
             logger.error(f"Failed to load image_2 '{payload.image_2}': {e}")
             from fastapi import HTTPException
@@ -356,7 +363,8 @@ def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
 
         aio = NanoBananaAIO()
         logger.info(f"Running NanoBananaAIO.generate_unified...")
-        result = aio.generate_unified(
+        # Await the natively async generator method
+        result = await aio.generate_unified(
             provider                 = "VERTEX",
             prompt                   = final_prompt,
             negative_prompt          = "",
@@ -402,10 +410,15 @@ def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
         temp_dir = Path("temp")
         temp_dir.mkdir(parents=True, exist_ok=True)
         for i, img_tensor in enumerate(extracted_tensors):
-            pil_img = tensor_to_pil(img_tensor)
-            out_path = temp_dir / f"generated_{int(time.time() * 1000)}_{i + 1}.png"
-            pil_img.save(out_path, format="PNG")
-            generated_images.append(str(out_path))
+            # Run PIL image creation & file saving in a thread pool (CPU & I/O bound)
+            def _save_task(tns, idx):
+                pil_img = tensor_to_pil(tns)
+                out_path = temp_dir / f"generated_{int(time.time() * 1000)}_{idx + 1}.png"
+                pil_img.save(out_path, format="PNG")
+                return str(out_path)
+            
+            saved_path_str = await asyncio.to_thread(_save_task, img_tensor, i)
+            generated_images.append(saved_path_str)
 
         if len(generated_images) < count:
             raise RuntimeError(f"Requested {count} images, but only generated {len(generated_images)} via NanoBananaAIO.")
@@ -415,10 +428,12 @@ def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
     except Exception as e:
         logger.warning(f"NanoBananaAIO generation failed, falling back to PIL image blender. Error: {e}")
         
-        # ── Fallback PIL Generation ──
+        # ── Fallback PIL Generation (CPU bound) ──
         generated_images = []
         for i in range(count):
-            out_path = generate_fallback_image(payload.prompt, payload.preset, i, payload.image_2)
+            out_path = await asyncio.to_thread(
+                generate_fallback_image, payload.prompt, payload.preset, i, payload.image_2
+            )
             generated_images.append(str(out_path))
         source = "PIL Fallback Generator"
 
@@ -436,17 +451,19 @@ def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
         gcs_media_files = []
         for file_path_str in generated_images:
             local_file = Path(file_path_str)
-            # Compress image losslessly
-            compressed_file = compress_image_lossless(local_file)
+            
+            # Compress image losslessly (CPU bound)
+            compressed_file = await asyncio.to_thread(compress_image_lossless, local_file)
             
             gcs_path = f"{gcs_prefix}/{compressed_file.name}"
-            gcs_uri = upload_file_to_gcs(compressed_file, gcs_path)
+            # GCS SDK call is blocking I/O, run in thread pool
+            gcs_uri = await asyncio.to_thread(upload_file_to_gcs, compressed_file, gcs_path)
             if gcs_uri:
                 gcs_media_files.append(gcs_uri)
-                # Cleanup local file
+                # Cleanup local file (I/O bound)
                 try:
                     if compressed_file.exists():
-                        compressed_file.unlink()
+                        await asyncio.to_thread(compressed_file.unlink)
                 except Exception as e:
                     logger.warning(f"Failed to delete local generated file {compressed_file}: {e}")
             else:
@@ -459,6 +476,3 @@ def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
         "generated_images": generated_images,
         "message": f"Successfully generated images via '{source}'. Final prompt used:\n\n{final_prompt}"
     }
-
-
-

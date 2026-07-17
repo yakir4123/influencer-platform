@@ -278,8 +278,6 @@ async def generate_images_session(chat_id: int, context: ContextTypes.DEFAULT_TY
         text=f"🚀 Starting generation session of {len(queue)} images. Please wait..."
     )
 
-    loop = asyncio.get_running_loop()
-
     for count_idx, (orig_idx, img_path) in enumerate(queue):
         cfg = configs[orig_idx]
         await context.bot.send_message(
@@ -300,8 +298,7 @@ async def generate_images_session(chat_id: int, context: ContextTypes.DEFAULT_TY
         )
 
         try:
-            # Run the re-posing function in a separate thread so it doesn't block the async loop
-            res = await loop.run_in_executor(None, lambda: generate_reposed_image(payload))
+            res = await generate_reposed_image(payload)
             
             gen_images = res.get("generated_images", [])
             if not gen_images:

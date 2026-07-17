@@ -77,3 +77,7 @@ OPENAI_API_KEY: Final[pulumi.Output[str] | None] = config.get_secret(
 INSTAGRAM_COOKIES: Final[pulumi.Output[str] | None] = config.get_secret(
     "instagram_cookies"
 )
+
+TELEGRAM_BOT_WEBHOOK_URL: Final[str | None] = config.get(
+    "telegram_bot_webhook_url"
+)

@@ -31,3 +31,8 @@ htmlcov/
 *.swp
 *.swo
 .DS_Store
+
+# Application temporary/download storage
+temp/
+downloads/
+gallery-dl/

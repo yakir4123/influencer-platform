@@ -52,6 +52,12 @@ iam.configure_iam(
 )
 
 # 7. Provision Cloud Run service, mounting Secret Manager secrets
+env_vars = {
+    "GCS_BUCKET_NAME": bucket.name,
+}
+if config.TELEGRAM_BOT_WEBHOOK_URL:
+    env_vars["TELEGRAM_BOT_WEBHOOK_URL"] = config.TELEGRAM_BOT_WEBHOOK_URL
+
 run_service = cloud_run.create_cloud_run_service(
     service_name=config.CLOUD_RUN_SERVICE_NAME,
     location=config.GCP_REGION,
@@ -61,9 +67,7 @@ run_service = cloud_run.create_cloud_run_service(
     cpu=config.CLOUD_RUN_CPU,
     memory=config.CLOUD_RUN_MEMORY,
     secrets=secret_resources,
-    env={
-        "GCS_BUCKET_NAME": bucket.name,
-    },
+    env=env_vars,
 )
 
 # 8. Export stacked outputs

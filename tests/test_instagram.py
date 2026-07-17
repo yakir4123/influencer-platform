@@ -90,9 +90,10 @@ def test_compress_image_lossless(tmp_path):
         assert opened_img.size == (100, 100)
 
 
+@pytest.mark.anyio
 @patch("app.services.instagram.list_gcs_files")
 @patch("app.services.instagram.settings")
-def test_instagram_download_gcs_cache_hit(mock_settings, mock_list_gcs):
+async def test_instagram_download_gcs_cache_hit(mock_settings, mock_list_gcs):
     mock_settings.GCS_BUCKET_NAME = "test-bucket"
     mock_settings.INSTAGRAM_DOWNLOAD_TIMEOUT = 120
     mock_settings.INSTAGRAM_SAVE_TO = "temp"
@@ -104,7 +105,7 @@ def test_instagram_download_gcs_cache_hit(mock_settings, mock_list_gcs):
         "gs://test-bucket/instagram_posts/www.instagram.com_p_C_abc123XYZ_eadf2f7ab3/img2.webp"
     ]
     
-    result = download_instagram_post(
+    result = await download_instagram_post(
         source_url="https://www.instagram.com/p/C_abc123XYZ/?img_index=1",
         max_items=10,
         force_refresh=False
@@ -117,11 +118,12 @@ def test_instagram_download_gcs_cache_hit(mock_settings, mock_list_gcs):
     mock_list_gcs.assert_called_once()
     
     
+@pytest.mark.anyio
 @patch("app.services.instagram.upload_file_to_gcs")
 @patch("app.services.instagram.list_gcs_files")
 @patch("app.services.instagram.download_with_gallery_dl")
 @patch("app.services.instagram.settings")
-def test_instagram_download_gcs_cache_miss(mock_settings, mock_gallery_dl, mock_list_gcs, mock_upload):
+async def test_instagram_download_gcs_cache_miss(mock_settings, mock_gallery_dl, mock_list_gcs, mock_upload):
     mock_settings.GCS_BUCKET_NAME = "test-bucket"
     mock_settings.INSTAGRAM_DOWNLOAD_TIMEOUT = 120
     mock_settings.INSTAGRAM_SAVE_TO = "temp"
@@ -149,7 +151,7 @@ def test_instagram_download_gcs_cache_miss(mock_settings, mock_gallery_dl, mock_
     # Mock upload
     mock_upload.side_effect = lambda local_file, gcs_path: f"gs://test-bucket/{gcs_path}"
     
-    result = download_instagram_post(
+    result = await download_instagram_post(
         source_url="https://www.instagram.com/p/C_abc123XYZ/",
         max_items=10,
         force_refresh=False

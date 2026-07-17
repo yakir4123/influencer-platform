@@ -100,14 +100,12 @@ def create_cloud_run_service(
         ),
     )
 
-    # Commented out public invoker to enforce private access.
-    # Only authenticated users via proxy can access the service.
-    # gcp.cloudrunv2.ServiceIamMember(
-    #     f"{service_name}-public-invoker",
-    #     name=service.name,
-    #     location=service.location,
-    #     role="roles/run.invoker",
-    #     member="allUsers",
-    # )
+    gcp.cloudrunv2.ServiceIamMember(
+        f"{service_name}-public-invoker",
+        name=service.name,
+        location=service.location,
+        role="roles/run.invoker",
+        member="allUsers",
+    )
 
     return service
