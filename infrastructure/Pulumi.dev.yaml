@@ -9,7 +9,7 @@ config:
   # Cloud Run Performance Tuning (Optional, defaults will be used if omitted)
   influencer-platform:cloud_run_service_name: influencer-platform-backend
   influencer-platform:cloud_run_max_instances: "5"
-  influencer-platform:cloud_run_memory: 2Gi
+  influencer-platform:cloud_run_memory: 512Mi
   influencer-platform:cloud_run_cpu: "1"
   influencer-platform:cloud_run_image: europe-west1-docker.pkg.dev/project-35d3eed2-c73d-4ab5-998/influencer-platform-repo/influencer-platform-backend:latest
   influencer-platform:instagram_cookies:

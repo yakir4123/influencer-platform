@@ -282,9 +282,7 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
     statically loading image_1 from app/assets/gal.png and optionally blending with image_2.
     If NanoBananaAIO execution fails, falls back to the local PIL blender.
     """
-    import torch
-    import numpy as np
-    from app.services.nano_banana_aio import NanoBananaAIO, tensor_to_pil
+    from app.services.nano_banana_aio import NanoBananaAIO
 
     name_to_image_map = {
         "gal": Path("app/assets/gal.png"),
@@ -311,17 +309,9 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
             "and we do not see the screen of the phone."
         )
 
-    # Help: load PIL image to PyTorch tensor [1, H, W, 3]
-    def pil_to_tensor(pil_img):
-        if pil_img.mode != "RGB":
-            pil_img = pil_img.convert("RGB")
-        arr = np.array(pil_img).astype(np.float32) / 255.0
-        return torch.from_numpy(arr).unsqueeze(0)
-
-    # 1. Load image_1 as tensor (run in thread since Image.open/numpy conversion are CPU-bound)
+    # 1. Load image_1 as PIL Image (run in thread since Image.open is CPU-bound)
     try:
         im1 = await asyncio.to_thread(Image.open, image_1_path)
-        tensor_image_1 = await asyncio.to_thread(pil_to_tensor, im1)
     except Exception as e:
         logger.error(f"Failed to load image_1 from {image_1_path}: {e}")
         from fastapi import HTTPException
@@ -331,8 +321,8 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
             detail=f"Identity reference image image_1 not found or corrupted: {e}",
         )
 
-    # 2. Load image_2 as tensor
-    tensor_image_2 = None
+    # 2. Load image_2 as PIL Image
+    im2 = None
     if payload.image_2:
         try:
             img2_path = payload.image_2
@@ -351,12 +341,23 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
                 im2 = await asyncio.to_thread(
                     lambda: Image.open(io.BytesIO(content)).convert("RGBA")
                 )
+            elif img2_path.startswith("gs://"):
+                # Download from GCS
+                from app.services.gcs import download_gcs_file_bytes
+
+                gcs_content = await asyncio.to_thread(
+                    lambda: download_gcs_file_bytes(img2_path)
+                )
+                if not gcs_content:
+                    raise FileNotFoundError(f"Failed to download GCS URI: {img2_path}")
+                content = gcs_content
+                im2 = await asyncio.to_thread(
+                    lambda: Image.open(io.BytesIO(content)).convert("RGBA")
+                )
             else:
                 im2 = await asyncio.to_thread(
                     lambda: Image.open(Path(img2_path)).convert("RGBA")
                 )
-
-            tensor_image_2 = await asyncio.to_thread(pil_to_tensor, im2)
         except Exception as e:
             logger.error(f"Failed to load image_2 '{payload.image_2}': {e}")
             from fastapi import HTTPException
@@ -371,15 +372,14 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
 
     # Run NanoBananaAIO
     try:
-        if tensor_image_1 is None:
+        if im1 is None:
             raise ValueError("image_1 (gal.png) is missing or corrupted")
 
         # Determine aspect ratio
         ar: Any = payload.aspect_ratio
         if ar == "auto":
-            ref = tensor_image_2 if tensor_image_2 is not None else tensor_image_1
-            _sh = ref.shape
-            _h, _w = (_sh[-3], _sh[-2]) if len(_sh) == 4 else (_sh[0], _sh[1])
+            ref = im2 if im2 is not None else im1
+            _w, _h = ref.size
             _avg = _w / _h
             _AR_SUPPORTED = [
                 ("1:1", 1 / 1),
@@ -419,8 +419,8 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
             top_p=0.95,
             fal_safety_tolerance="4",
             fal_enable_web_search=False,
-            image_1=tensor_image_1,
-            image_2=tensor_image_2,
+            image_1=im1,
+            image_2=im2,
             video_mode_enabled=False,
             face_swap_enabled=False,
             breast_refiner_enabled=False,
@@ -429,32 +429,23 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
             gpt2_image_quality="high",
         )
 
-        # Extract tensors from result
-        t = result[0]
-        if t is not None and list(t.shape) == [1, 64, 64, 3] and float(t.max()) < 0.01:
-            raise RuntimeError("NanoBananaAIO returned error dummy image")
-
-        extracted_tensors = []
-        if t is not None:
-            if t.dim() == 4:
-                for b in range(t.shape[0]):
-                    extracted_tensors.append(t[b])
-            else:
-                extracted_tensors.append(t)
+        # Extract images from result
+        images = result[0]
+        if not images:
+            raise RuntimeError("NanoBananaAIO returned no images")
 
         temp_dir = Path("temp")
         temp_dir.mkdir(parents=True, exist_ok=True)
-        for i, img_tensor in enumerate(extracted_tensors):
-            # Run PIL image creation & file saving in a thread pool (CPU & I/O bound)
-            def _save_task(tns, idx):
-                pil_img = tensor_to_pil(tns)
+        for i, pil_img in enumerate(images):
+            # Run PIL image file saving in a thread pool (I/O bound)
+            def _save_task(img, idx):
                 out_path = (
                     temp_dir / f"generated_{int(time.time() * 1000)}_{idx + 1}.png"
                 )
-                pil_img.save(out_path, format="PNG")
+                img.save(out_path, format="PNG")
                 return str(out_path)
 
-            saved_path_str = await asyncio.to_thread(_save_task, img_tensor, i)
+            saved_path_str = await asyncio.to_thread(_save_task, pil_img, i)
             generated_images.append(saved_path_str)
 
         if len(generated_images) < count:

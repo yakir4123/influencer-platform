@@ -7,8 +7,6 @@ using the asynchronous Google GenAI SDK.
 import os
 import io
 import logging
-import torch
-import numpy as np
 from PIL import Image
 from typing import Optional, List, Union, Any
 import google.auth
@@ -23,21 +21,6 @@ _HARM_CATEGORIES = [
     "HARM_CATEGORY_SEXUALLY_EXPLICIT",
     "HARM_CATEGORY_DANGEROUS_CONTENT",
 ]
-
-
-def tensor_to_pil(img_tensor: torch.Tensor) -> Optional[Image.Image]:
-    if img_tensor is None:
-        return None
-    if img_tensor.dim() == 4:
-        img_tensor = img_tensor[0]
-    return Image.fromarray((img_tensor.cpu().numpy() * 255).astype(np.uint8))
-
-
-def pil_to_tensor(pil_img: Image.Image) -> torch.Tensor:
-    if pil_img.mode != "RGB":
-        pil_img = pil_img.convert("RGB")
-    arr = np.array(pil_img).astype(np.float32) / 255.0
-    return torch.from_numpy(arr).unsqueeze(0)
 
 
 def _load_vertex_credentials(json_path: str):
@@ -73,16 +56,6 @@ def _load_vertex_json_folder(folder_path: str) -> List[str]:
 class NanoBananaAIO:
     _vertex_rotation_offset = 0
 
-    def _handle_error(self, message: str) -> dict:
-        logger.error(message)
-        # Return a black/dummy image to match signature on failure
-        dummy_tensor = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
-        return {
-            "status": "error",
-            "generated_images": [dummy_tensor],
-            "message": message,
-        }
-
     async def generate_unified(
         self,
         provider: str = "VERTEX",
@@ -104,15 +77,15 @@ class NanoBananaAIO:
         top_p: float = 0.95,
         fal_safety_tolerance: str = "4",
         fal_enable_web_search: bool = False,
-        image_1: Optional[torch.Tensor] = None,
-        image_2: Optional[torch.Tensor] = None,
+        image_1: Optional[Image.Image] = None,
+        image_2: Optional[Image.Image] = None,
         video_mode_enabled: bool = False,
         face_swap_enabled: bool = False,
         breast_refiner_enabled: bool = False,
         low_neck_enabled: bool = False,
         face_expression: str = "Neutral",
         gpt2_image_quality: str = "high",
-    ) -> tuple[torch.Tensor, str, str]:
+    ) -> tuple[list[Image.Image], str, str]:
         """
         Natively async generation method. Only VERTEX provider is supported.
         """
@@ -209,13 +182,9 @@ class NanoBananaAIO:
         # Prepare contents
         contents: List[Union[str, Image.Image]] = [prompt]
         if image_1 is not None:
-            pil_1 = tensor_to_pil(image_1)
-            if pil_1:
-                contents.append(pil_1)
+            contents.append(image_1)
         if image_2 is not None:
-            pil_2 = tensor_to_pil(image_2)
-            if pil_2:
-                contents.append(pil_2)
+            contents.append(image_2)
 
         # Run async calls concurrently if batch_size > 1
         import asyncio
@@ -254,10 +223,9 @@ class NanoBananaAIO:
                 if not img_bytes:
                     raise RuntimeError("No image data in response candidates.")
 
-                # Convert back to PyTorch tensor
+                # Convert to PIL Image
                 pil_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-                image_np = np.array(pil_image).astype(np.float32) / 255.0
-                return torch.from_numpy(image_np).unsqueeze(0), text_resp
+                return pil_image, text_resp
             except Exception as e:
                 logger.error(f"API call failed: {e}")
                 raise e
@@ -266,9 +234,8 @@ class NanoBananaAIO:
         tasks = [_call_api() for _ in range(batch_size)]
         results = await asyncio.gather(*tasks)
 
-        # Combine output tensors
-        tensors = [r[0] for r in results]
-        combined_tensor = torch.cat(tensors, dim=0)
+        # Combine output images
+        images = [r[0] for r in results]
         combined_text = "\n\n".join([r[1] for r in results])
 
-        return combined_tensor, combined_text, ""
+        return images, combined_text, ""
