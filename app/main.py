@@ -10,12 +10,10 @@ from app.bot import run_bot_async, stop_bot_async
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    bot_task = None
     if settings.TELEGRAM_BOT_TOKEN:
-        bot_task = asyncio.create_task(run_bot_async())
+        await run_bot_async()
     yield
-    if bot_task:
-        await stop_bot_async()
+    await stop_bot_async()
 
 
 app = FastAPI(
