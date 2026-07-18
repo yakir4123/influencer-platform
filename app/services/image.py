@@ -313,6 +313,9 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
     directive = _PRESET_DIRECTIVES.get(payload.preset, "")
     base = payload.prompt.strip()
     final_prompt = (base + "\n\n" + directive) if base else directive
+    final_prompt += (
+        "\n\nmake the generated image look at the same direction and same face expression as image 2."
+    )
 
     if payload.is_selfie:
         final_prompt += (

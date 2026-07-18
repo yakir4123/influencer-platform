@@ -300,7 +300,7 @@ async def generate_single_image_and_send(
         prompt="",
         count=1,
         retry_count=3,
-        image_size="1K",
+        image_size="2K",
         image_2=img_path,
         is_selfie=cfg["is_selfie"],
         is_mirror_selfie=cfg["is_mirror_selfie"],

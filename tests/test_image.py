@@ -134,7 +134,7 @@ async def test_generate_reposed_image_fallback_mechanism(
         prompt="re-pose prompt",
         count=1,
         retry_count=3,
-        image_size="1K",
+        image_size="2K",
         image_2=str(local_img_path),
         identity_name="gal",
     )
