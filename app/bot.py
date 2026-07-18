@@ -282,8 +282,74 @@ async def ask_image_generation_config(chat_id: int, context: ContextTypes.DEFAUL
     )
 
 
+async def generate_single_image_and_send(
+    chat_id: int,
+    orig_idx: int,
+    img_path: str,
+    cfg: dict,
+    identity_name: str,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    """Generates variation and sends it for a single image reference."""
+    await context.bot.send_message(
+        chat_id=chat_id, text=f"🎨 Generating variation for Image {orig_idx + 1}..."
+    )
+
+    payload = ImageGenerationRequest(
+        preset="Normal",
+        prompt="",
+        count=1,
+        retry_count=3,
+        image_size="1K",
+        image_2=img_path,
+        is_selfie=cfg["is_selfie"],
+        is_mirror_selfie=cfg["is_mirror_selfie"],
+        identity_name=identity_name,
+    )
+
+    try:
+        res = await generate_reposed_image(payload)
+
+        gen_images = res.get("generated_images", [])
+        if not gen_images:
+            raise ValueError("No images returned from generator.")
+
+        for file_path in gen_images:
+            caption = (
+                f"✨ New image for Image {orig_idx + 1}\n"
+                f"Identity: {identity_name}\n"
+                f"Selfie: {cfg['is_selfie']}, Mirror Selfie: {cfg['is_mirror_selfie']}"
+            )
+            if file_path.startswith("gs://"):
+                from app.services.gcs import download_gcs_file_bytes
+
+                img_bytes = download_gcs_file_bytes(file_path)
+                if img_bytes:
+                    await context.bot.send_photo(
+                        chat_id=chat_id, photo=img_bytes, caption=caption
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"⚠️ Failed to read generated image from storage: {file_path}",
+                    )
+            else:
+                with open(file_path, "rb") as f:
+                    await context.bot.send_photo(
+                        chat_id=chat_id, photo=f, caption=caption
+                    )
+    except Exception as e:
+        logger.error(
+            f"Generation failed for Image {orig_idx + 1}: {e}", exc_info=True
+        )
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"❌ Failed to generate variation for Image {orig_idx + 1}: {str(e)}",
+        )
+
+
 async def generate_images_session(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
-    """Processes the queued image configurations and generates the variations."""
+    """Processes the queued image configurations and generates the variations concurrently."""
     state = USER_STATES[chat_id]
     queue = state["gen_queue"]
     configs = state["gen_configs"]
@@ -294,63 +360,21 @@ async def generate_images_session(chat_id: int, context: ContextTypes.DEFAULT_TY
         text=f"🚀 Starting generation session of {len(queue)} images. Please wait...",
     )
 
-    for count_idx, (orig_idx, img_path) in enumerate(queue):
+    tasks = []
+    for orig_idx, img_path in queue:
         cfg = configs[orig_idx]
-        await context.bot.send_message(
-            chat_id=chat_id, text=f"🎨 Generating variation for Image {orig_idx + 1}..."
-        )
-
-        payload = ImageGenerationRequest(
-            preset="Normal",
-            prompt="",
-            count=1,
-            retry_count=3,
-            image_size="1K",
-            image_2=img_path,
-            is_selfie=cfg["is_selfie"],
-            is_mirror_selfie=cfg["is_mirror_selfie"],
-            identity_name=identity_name,
-        )
-
-        try:
-            res = await generate_reposed_image(payload)
-
-            gen_images = res.get("generated_images", [])
-            if not gen_images:
-                raise ValueError("No images returned from generator.")
-
-            for file_path in gen_images:
-                caption = (
-                    f"✨ New image for Image {orig_idx + 1}\n"
-                    f"Identity: {identity_name}\n"
-                    f"Selfie: {cfg['is_selfie']}, Mirror Selfie: {cfg['is_mirror_selfie']}"
-                )
-                if file_path.startswith("gs://"):
-                    from app.services.gcs import download_gcs_file_bytes
-
-                    img_bytes = download_gcs_file_bytes(file_path)
-                    if img_bytes:
-                        await context.bot.send_photo(
-                            chat_id=chat_id, photo=img_bytes, caption=caption
-                        )
-                    else:
-                        await context.bot.send_message(
-                            chat_id=chat_id,
-                            text=f"⚠️ Failed to read generated image from storage: {file_path}",
-                        )
-                else:
-                    with open(file_path, "rb") as f:
-                        await context.bot.send_photo(
-                            chat_id=chat_id, photo=f, caption=caption
-                        )
-        except Exception as e:
-            logger.error(
-                f"Generation failed for Image {orig_idx + 1}: {e}", exc_info=True
-            )
-            await context.bot.send_message(
+        tasks.append(
+            generate_single_image_and_send(
                 chat_id=chat_id,
-                text=f"❌ Failed to generate variation for Image {orig_idx + 1}: {str(e)}",
+                orig_idx=orig_idx,
+                img_path=img_path,
+                cfg=cfg,
+                identity_name=identity_name,
+                context=context,
             )
+        )
+
+    await asyncio.gather(*tasks)
 
     await context.bot.send_message(
         chat_id=chat_id, text="🎉 All variations have been generated and sent!"
