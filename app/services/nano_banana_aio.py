@@ -125,11 +125,7 @@ class NanoBananaAIO:
                 f"Loaded credentials from {vertex_json_path}. Project: {project_id}"
             )
 
-        vertex_model_id = (
-            "gemini-3-pro-image-preview"
-            if model == "Nano Banana Pro"
-            else "gemini-3.5-flash-image-preview"
-        )
+        vertex_model_id = "gemini-2.5-flash-image"
 
         # Prepare HTTP options
         http_opts = genai.types.HttpOptions(timeout=300000)  # type: ignore
@@ -137,7 +133,7 @@ class NanoBananaAIO:
         client = genai.Client(
             vertexai=True,
             project=project_id,
-            location="global",
+            location="us-central1",
             credentials=credentials,
             http_options=http_opts,
         )
