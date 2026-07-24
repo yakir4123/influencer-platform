@@ -133,20 +133,27 @@ class NanoBananaAIO:
         vertex_model_id = _MODEL_MAP.get(model, "gemini-3-pro-image-preview")
         effective_location = "global"
 
-        logger.info(
-            f"Using Vertex AI model: {vertex_model_id} (location: {effective_location})"
-        )
+        from app.core.config import settings
+
+        api_key = (gemini_api_key or settings.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY") or "").strip()
 
         # Prepare HTTP options
         http_opts = genai.types.HttpOptions(timeout=300000)  # type: ignore
 
-        client = genai.Client(
-            vertexai=True,
-            project=project_id,
-            location=effective_location,
-            credentials=credentials,
-            http_options=http_opts,
-        )
+        if api_key:
+            logger.info(f"Initializing Google AI Studio client with API key for model {vertex_model_id}...")
+            client = genai.Client(api_key=api_key, http_options=http_opts)
+        else:
+            logger.info(
+                f"Initializing Vertex AI client for model {vertex_model_id} (project: {project_id}, location: {effective_location})..."
+            )
+            client = genai.Client(
+                vertexai=True,
+                project=project_id,
+                location=effective_location,
+                credentials=credentials,
+                http_options=http_opts,
+            )
 
         # Prepare safety settings
         safety_threshold = "BLOCK_NONE" if disable_safety_threshold else None
