@@ -130,8 +130,8 @@ class NanoBananaAIO:
                 f"Loaded credentials from {vertex_json_path}. Project: {project_id}"
             )
 
-        vertex_model_id = _MODEL_MAP.get(model, "gemini-3-pro-image-preview")
-        effective_location = "global"
+        vertex_model_id = _MODEL_MAP.get(model, "gemini-2.5-flash-image")
+        effective_location = "us-central1"
 
         logger.info(
             f"Using Vertex AI model: {vertex_model_id} (location: {effective_location})"
@@ -185,16 +185,15 @@ class NanoBananaAIO:
             except Exception as e:
                 logger.warning(f"Failed to configure search tool: {e}")
 
-        # Prepare contents
-        contents: List[Union[str, Image.Image]] = [prompt]
+        # Prepare contents with explicit text labels before image inputs
+        contents: List[Union[str, Image.Image]] = []
         if image_1 is not None:
-            # Convert to RGB to ensure compatibility (Gemini API does not support RGBA/alpha channel)
             img1_rgb = image_1.convert("RGB") if image_1.mode != "RGB" else image_1
-            contents.append(img1_rgb)
+            contents.extend(["Picture 1 (Identity Reference Face):", img1_rgb])
         if image_2 is not None:
-            # Convert to RGB to ensure compatibility (Gemini API does not support RGBA/alpha channel)
             img2_rgb = image_2.convert("RGB") if image_2.mode != "RGB" else image_2
-            contents.append(img2_rgb)
+            contents.extend(["Picture 2 (Scene & Pose Reference):", img2_rgb])
+        contents.append(prompt)
 
         # Run async calls concurrently if batch_size > 1
         import asyncio
