@@ -22,6 +22,11 @@ _HARM_CATEGORIES = [
     "HARM_CATEGORY_DANGEROUS_CONTENT",
 ]
 
+_MODEL_MAP = {
+    "Nano Banana Pro": "gemini-3-pro-image-preview",
+    "Nano Banana 2": "gemini-3.1-flash-image-preview",
+}
+
 
 def _load_vertex_credentials(json_path: str):
     """Loads GCP service account credentials from a JSON key file."""
@@ -125,7 +130,12 @@ class NanoBananaAIO:
                 f"Loaded credentials from {vertex_json_path}. Project: {project_id}"
             )
 
-        vertex_model_id = "gemini-2.5-flash-image"
+        vertex_model_id = _MODEL_MAP.get(model, "gemini-3-pro-image-preview")
+        effective_location = "global"
+
+        logger.info(
+            f"Using Vertex AI model: {vertex_model_id} (location: {effective_location})"
+        )
 
         # Prepare HTTP options
         http_opts = genai.types.HttpOptions(timeout=300000)  # type: ignore
@@ -133,7 +143,7 @@ class NanoBananaAIO:
         client = genai.Client(
             vertexai=True,
             project=project_id,
-            location="us-central1",
+            location=effective_location,
             credentials=credentials,
             http_options=http_opts,
         )
