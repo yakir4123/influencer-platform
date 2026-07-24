@@ -36,3 +36,5 @@ htmlcov/
 temp/
 downloads/
 gallery-dl/
+
+vertex_credentials.json

@@ -32,8 +32,14 @@ def _load_vertex_credentials(json_path: str):
     """Loads GCP service account credentials from a JSON key file."""
     from google.oauth2 import service_account
 
+    scopes = [
+        "https://www.googleapis.com/auth/cloud-platform",
+        "https://www.googleapis.com/auth/generative-language",
+    ]
     try:
-        creds = service_account.Credentials.from_service_account_file(json_path)
+        creds = service_account.Credentials.from_service_account_file(
+            json_path, scopes=scopes
+        )
         project_id = creds.project_id
         return creds, project_id
     except Exception as e:
@@ -115,6 +121,16 @@ class NanoBananaAIO:
                 )
 
         vertex_json_path = vj_files[0] if vj_files else ""
+        if not vertex_json_path:
+            env_folder = os.getenv("VERTEX_JSON_FOLDER", "/Users/yakir4123/ai_influencers")
+            if os.path.isdir(env_folder):
+                try:
+                    env_vj_files = _load_vertex_json_folder(env_folder)
+                    if env_vj_files:
+                        vertex_json_path = env_vj_files[0]
+                except Exception as _e:
+                    logger.warning(f"Could not load vertex json from folder {env_folder}: {_e}")
+
         credentials = None
         project_id = None
 
@@ -130,8 +146,8 @@ class NanoBananaAIO:
                 f"Loaded credentials from {vertex_json_path}. Project: {project_id}"
             )
 
-        vertex_model_id = _MODEL_MAP.get(model, "gemini-3-pro-image-preview")
-        effective_location = "global"
+        vertex_model_id = _MODEL_MAP.get(model, "gemini-2.5-flash-image")
+        effective_location = "us-central1"
 
         from app.core.config import settings
 

@@ -429,7 +429,7 @@ async def generate_reposed_image(payload: ImageGenerationRequest) -> dict:
             wavespeed_api_key="",
             kie_api_key="",
             fal_api_key="",
-            vertex_json_folder=payload.vertex_json_folder,
+            vertex_json_folder=payload.vertex_json_folder or os.getenv("VERTEX_JSON_FOLDER", "/Users/yakir4123/ai_influencers"),
             disable_safety_threshold=payload.disable_safety_threshold,
             model="Nano Banana Pro",
             batch_size=count,
