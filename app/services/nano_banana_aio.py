@@ -130,8 +130,8 @@ class NanoBananaAIO:
                 f"Loaded credentials from {vertex_json_path}. Project: {project_id}"
             )
 
-        vertex_model_id = _MODEL_MAP.get(model, "gemini-2.5-flash-image")
-        effective_location = "us-central1"
+        vertex_model_id = _MODEL_MAP.get(model, "gemini-3-pro-image-preview")
+        effective_location = "global"
 
         logger.info(
             f"Using Vertex AI model: {vertex_model_id} (location: {effective_location})"
